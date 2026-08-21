@@ -171,6 +171,22 @@ module ai_gpu_cluster import riscv_ai_gpu_pkg::*; (
     logic        systolic_done;
     logic signed [31:0] systolic_res [7:0][7:0];
 
+    // Default weight and activation signals for cluster systolic array
+    logic signed [7:0] cluster_default_weight [7:0][7:0];
+    logic signed [7:0] cluster_default_act [7:0];
+
+    always_comb begin
+        for (int r = 0; r < 8; r++) begin
+            for (int c = 0; c < 8; c++) begin
+                cluster_default_weight[r][c] = 8'(r + c + 1);
+            end
+        end
+        cluster_default_act[0] = 8'd2; cluster_default_act[1] = 8'd3;
+        cluster_default_act[2] = 8'd1; cluster_default_act[3] = 8'd4;
+        cluster_default_act[4] = 8'd0; cluster_default_act[5] = 8'd1;
+        cluster_default_act[6] = 8'd2; cluster_default_act[7] = 8'd3;
+    end
+
     neural_systolic_engine_8x8 u_systolic_array (
         .clk               (clk),
         .rst_n             (rst_n),
@@ -178,16 +194,9 @@ module ai_gpu_cluster import riscv_ai_gpu_pkg::*; (
         .start_weight_load (neural_req_val[0] && (neural_req_op[0] == 4'h0)),
         .engine_busy       (systolic_busy),
         .gemm_done         (systolic_done),
-        .weight_matrix     ('{'{8'd1, 8'd2, 8'd3, 8'd4, 8'd5, 8'd6, 8'd7, 8'd8},
-                              '{8'd1, 8'd1, 8'd1, 8'd1, 8'd1, 8'd1, 8'd1, 8'd1},
-                              '{8'd2, 8'd2, 8'd2, 8'd2, 8'd2, 8'd2, 8'd2, 8'd2},
-                              '{8'd0, 8'd1, 8'd0, 8'd1, 8'd0, 8'd1, 8'd0, 8'd1},
-                              '{8'd1, 8'd0, 8'd1, 8'd0, 8'd1, 8'd0, 8'd1, 8'd0},
-                              '{8'd3, 8'd1, 8'd4, 8'd1, 8'd5, 8'd9, 8'd2, 8'd6},
-                              '{8'd1, 8'd1, 8'd1, 8'd1, 8'd1, 8'd1, 8'd1, 8'd1},
-                              '{8'd2, 8'd1, 8'd0, 8'd2, 8'd1, 8'd0, 8'd2, 8'd1}}),
+        .weight_matrix     (cluster_default_weight),
         .act_valid         (neural_req_val[0]),
-        .act_vector        ('{8'd2, 8'd3, 8'd1, 8'd4, 8'd0, 8'd1, 8'd2, 8'd3}),
+        .act_vector        (cluster_default_act),
         .result_valid      (),
         .result_matrix     (systolic_res)
     );

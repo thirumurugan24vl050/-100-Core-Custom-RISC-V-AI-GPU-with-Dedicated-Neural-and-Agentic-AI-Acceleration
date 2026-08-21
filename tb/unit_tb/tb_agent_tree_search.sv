@@ -91,16 +91,15 @@ module tb_agent_tree_search;
         @(posedge clk);
         eval_req_valid <= 1'b0;
 
-        // 2 pipeline stages of latency
-        @(posedge clk);
-        @(posedge clk);
+        // Wait for response valid from pipeline
+        while (!eval_resp_valid) @(posedge clk);
         #0.1;
 
         if (eval_resp_valid && best_branch_idx == 3'd2) begin
             $display(" [PASS] Test 1: Best branch correctly selected (Idx: %0d, Score: %0d)", best_branch_idx, best_branch_score);
             test_pass_count++;
         end else begin
-            $display(" [FAIL] Test 1: Expected best branch index 2, got %0d", best_branch_idx);
+            $display(" [FAIL] Test 1: Expected best branch index 2, got %0d (eval_resp_valid=%0b)", best_branch_idx, eval_resp_valid);
             test_fail_count++;
         end
 
@@ -132,15 +131,15 @@ module tb_agent_tree_search;
         @(posedge clk);
         eval_req_valid <= 1'b0;
 
-        @(posedge clk);
-        @(posedge clk);
+        // Wait for response valid
+        while (!eval_resp_valid) @(posedge clk);
         #0.1;
 
         if (eval_resp_valid && best_branch_idx == 3'd5 && best_branch_score == 16'd612) begin
             $display(" [PASS] Test 3: Unvisited branch exploration bonus verified (Idx: %0d, Score: %0d)", best_branch_idx, best_branch_score);
             test_pass_count++;
         end else begin
-            $display(" [FAIL] Test 3: Unvisited branch selection failed (got idx: %0d, score: %0d)", best_branch_idx, best_branch_score);
+            $display(" [FAIL] Test 3: Unvisited branch selection failed (got idx: %0d, score: %0d, valid=%0b)", best_branch_idx, best_branch_score, eval_resp_valid);
             test_fail_count++;
         end
 

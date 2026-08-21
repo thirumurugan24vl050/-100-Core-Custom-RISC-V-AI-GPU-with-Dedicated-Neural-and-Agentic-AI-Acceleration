@@ -144,14 +144,30 @@ module agentic_coprocessor_top import riscv_ai_gpu_pkg::*; (
         .allocated_page_count   ()
     );
 
+    // Default Q and Visit arrays for Tree Search
+    logic [15:0] tree_default_q [7:0];
+    logic [15:0] tree_default_visits [7:0];
+
+    always_comb begin
+        tree_default_q[0] = 16'd200; tree_default_q[1] = 16'd180;
+        tree_default_q[2] = 16'd220; tree_default_q[3] = 16'd150;
+        tree_default_q[4] = 16'd90;  tree_default_q[5] = 16'd110;
+        tree_default_q[6] = 16'd300; tree_default_q[7] = 16'd250;
+
+        tree_default_visits[0] = 16'd10; tree_default_visits[1] = 16'd8;
+        tree_default_visits[2] = 16'd12; tree_default_visits[3] = 16'd5;
+        tree_default_visits[4] = 16'd2;  tree_default_visits[5] = 16'd4;
+        tree_default_visits[6] = 16'd20; tree_default_visits[7] = 16'd15;
+    end
+
     // 3. Speculative Tree Search Engine Instance
     agent_tree_search_engine u_tree_search (
         .clk                    (clk),
         .rst_n                  (rst_n),
         .eval_req_valid         (tree_req_val),
         .temperature_threshold  (coproc_req_param2[15:0]),
-        .branch_q_values        ('{16'd200, 16'd180, 16'd220, 16'd150, 16'd90, 16'd110, 16'd300, 16'd250}),
-        .branch_visit_counts    ('{16'd10, 16'd8, 16'd12, 16'd5, 16'd2, 16'd4, 16'd20, 16'd15}),
+        .branch_q_values        (tree_default_q),
+        .branch_visit_counts    (tree_default_visits),
         .total_visit_count      (16'd76),
         .eval_resp_valid        (tree_resp_val),
         .best_branch_idx        (tree_best_idx),
