@@ -32,6 +32,7 @@ package riscv_ai_gpu_pkg;
     // 2. CORE & DATA PATH CONSTANTS
     //-------------------------------------------------------------------------
     localparam int XLEN                   = 32;       // Scalar Datapath Width (RV32)
+    localparam int PLEN                   = 64;       // 64-bit System Physical Address Width
     localparam int VLEN                   = 256;      // Vector Datapath Width (256-bit SIMD)
     localparam int NUM_WARPS              = 4;        // Hardware Warps per Core
     localparam int WARP_LANES             = 32;       // 32 Logical Lanes per Warp
@@ -39,7 +40,6 @@ package riscv_ai_gpu_pkg;
     localparam int NUM_SCALAR_REGS        = 32;       // 32 architectural scalar registers
     localparam int NUM_VECTOR_REGS        = 32;       // 32 architectural vector registers
     localparam int ICACHE_SIZE_KB         = 4;        // 4KB L1 Instruction Cache
-    localparam int DCACHE_SIZE_KB         = 4;        // 4KB L1 Data Cache
     localparam int CLUSTER_SRAM_KB        = 64;       // 64KB Cluster Shared SRAM
     localparam int CLUSTER_SRAM_BANKS     = 8;        // 8 Banks x 8KB (1R/1W per bank)
 
@@ -72,9 +72,9 @@ package riscv_ai_gpu_pkg;
 
     // Decoupled Tensor CSR Descriptors
     typedef struct packed {
-        logic [31:0]                   src_a_addr;
-        logic [31:0]                   src_b_addr;
-        logic [31:0]                   dst_c_addr;
+        logic [63:0]                   src_a_addr;
+        logic [63:0]                   src_b_addr;
+        logic [63:0]                   dst_c_addr;
         logic [15:0]                   dim_m;
         logic [15:0]                   dim_n;
         logic [15:0]                   dim_k;
@@ -131,8 +131,8 @@ package riscv_ai_gpu_pkg;
         logic [2:0]                    task_prio;
         logic [MAX_DAG_NODES-1:0]      dependency_mask; // Bitmask of prerequisite tasks
         logic [7:0]                    cluster_target;  // Target cluster or 8'hFF for dynamic
-        logic [31:0]                   instruction_ptr; // PC start address
-        logic [31:0]                   context_ptr;     // Pointer to agent context state
+        logic [63:0]                   instruction_ptr; // 64-bit PC start address
+        logic [63:0]                   context_ptr;     // 64-bit Pointer to agent context state
         logic                          valid;
         logic                          ready;
         logic                          running;
@@ -149,7 +149,23 @@ package riscv_ai_gpu_pkg;
     } paged_kv_entry_t;
 
     //-------------------------------------------------------------------------
-    // 5. NETWORK-ON-CHIP (NoC) 160-BIT FLIT STRUCTURES
+    // 5. 512-BIT SCATTER-GATHER DMA DESCRIPTOR STRUCTURE
+    //-------------------------------------------------------------------------
+    typedef struct packed {
+        logic [63:0]                   src_addr;        // 64-bit source physical address
+        logic [63:0]                   dst_addr;        // 64-bit destination physical address
+        logic [31:0]                   length;          // Transfer length in bytes
+        logic [31:0]                   stride;          // Source/destination stride
+        logic [7:0]                    burst_len;       // AXI burst length (1..256 beats)
+        logic [7:0]                    dest_cluster;    // Target cluster ID (0..9) or broadcast
+        logic                          direction;       // 1 = DRAM -> SPAD, 0 = SPAD -> DRAM
+        logic                          interrupt_en;    // Assert interrupt on completion
+        logic [63:0]                   next_desc_ptr;   // 64-bit pointer to next descriptor
+        logic [31:0]                   flags;           // Control flags and status
+    } dma_descriptor_t;
+
+    //-------------------------------------------------------------------------
+    // 6. NETWORK-ON-CHIP (NoC) 160-BIT FLIT STRUCTURES
     //-------------------------------------------------------------------------
     localparam int NOC_HEADER_WIDTH   = 32;       // 32-bit header width
     localparam int NOC_PAYLOAD_WIDTH  = 128;      // 128-bit payload width
@@ -181,12 +197,11 @@ package riscv_ai_gpu_pkg;
         MSG_TOKEN_ROUTE  = 8'h06
     } noc_msg_type_e;
 
-    // 128-bit Memory Request Payload Structure (Exactly 128 bits)
+    // 128-bit Memory Request Payload Structure (64-bit Physical Address, 128 bits exact)
     typedef struct packed {
-        logic [31:0]                   addr;          // [127:96]
-        logic [15:0]                   byte_enable;   // [95:80]
-        logic [15:0]                   transaction_id;// [79:64]
-        logic [31:0]                   write_data;    // [63:32]
+        logic [63:0]                   addr;          // [127:64] (64-bit address)
+        logic [15:0]                   transaction_id;// [63:48]
+        logic [15:0]                   byte_enable;   // [47:32]
         logic [7:0]                    burst_len;     // [31:24]
         logic                          rw_flag;       // [23]
         logic [3:0]                    req_type;      // [22:19]
@@ -215,7 +230,7 @@ package riscv_ai_gpu_pkg;
     } noc_flit_t;
 
     //-------------------------------------------------------------------------
-    // 6. CUSTOM RISC-V 2-OPCODE EXTENSION DEFINITIONS
+    // 7. CUSTOM RISC-V 2-OPCODE EXTENSION DEFINITIONS
     //-------------------------------------------------------------------------
     localparam logic [6:0] OPCODE_CUSTOM_0      = 7'b0001011; // CUSTOM-0 (0x0B) -> Tensor/Neural
     localparam logic [6:0] OPCODE_CUSTOM_1      = 7'b0101011; // CUSTOM-1 (0x2B) -> SIMT/Agent/Sync
@@ -247,5 +262,6 @@ package riscv_ai_gpu_pkg;
     localparam logic [2:0] FUNCT3_AGENT_TREE     = 3'b100;
     localparam logic [2:0] FUNCT3_AGENT_ROUTER   = 3'b101;
     localparam logic [2:0] FUNCT3_AGENT_BARRIER  = FUNCT3_BARRIER;
+    localparam logic [2:0] FUNCT3_AI_FENCE       = 3'b111;
 
 endpackage : riscv_ai_gpu_pkg

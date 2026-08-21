@@ -1,5 +1,5 @@
-# Technical Architecture Specification: 100-Core Custom RISC-V SIMT AI GPU
-## with Dedicated Neural and Agentic AI Acceleration (RTL-to-GDSII)
+# Technical Architecture Specification: Architecture Baseline v1.0
+## 100-Core Custom RISC-V SIMT AI GPU with Dedicated Neural and Agentic AI Acceleration (RTL-to-GDSII)
 
 ---
 
@@ -21,6 +21,7 @@ An ASIC-oriented, domain-specific many-core AI accelerator combining programmabl
 | **Cores per Cluster** | **10 Cores** | 10 Tiles per Row |
 | **Physical Tile Mapping** | **Tile $(x, y)$** | $\text{core\_id} = y \times 10 + x, \quad \text{cluster\_id} = y$ |
 | **Tile Definition** | **1 Core + 1 Router** | 1 RISC-V AI Compute Core + 1 5-Port NoC Router Endpoint |
+| **System Address Width** | **64 bits Physical** | `addr[63:0]` for Global Memory, DMA, and External DRAM |
 | **NoC Interconnect** | **10 $\times$ 10 2D-Mesh** | 100 5-Port Routers with Dimension-Order XY Routing |
 | **Router Ports** | **5 Ports** | North, South, East, West, Local |
 | **NoC Virtual Channels** | **3 VCs** | `VC0: Request`, `VC1: Response`, `VC2: Agent/Control` |
@@ -87,7 +88,7 @@ An ASIC-oriented, domain-specific many-core AI accelerator combining programmabl
 
 ---
 
-## 4. Tile Microarchitecture (One Core = One GPU Tile)
+## 4. Tile Microarchitecture & Core Pipeline Control
 
 ```
                               AI COMPUTE TILE (x, y)
@@ -120,75 +121,88 @@ An ASIC-oriented, domain-specific many-core AI accelerator combining programmabl
                                Local SPAD / Local NoC
 ```
 
-### 4.1 Warp Execution & SIMT Divergence Model
+### 4.1 Core Pipeline and Stall/Wait Control
+The core execution pipeline operates as a dynamic, warp-interleaved datapath:
+```
+Fetch ──► Decode ──► Issue ──► Execute ──┬──► Scalar Result ──► Writeback (WB)
+                                         ├──► Memory Request ──► WARP_WAIT_MEM
+                                         ├──► Tensor Request ──► WARP_WAIT_NMU
+                                         ├──► Barrier Sync   ──► WARP_WAIT_BARRIER
+                                         └──► Agent Request  ──► WARP_WAIT_AGENT
+```
+
+### 4.2 SIMT Divergence & Precision Model
 - **32-Lane Logical Warp**:
   - **INT8 Mode**: 32 logical lanes $\times$ 1 element/lane $\rightarrow 32 \times 8\text{b} = 256\text{ bits}$.
   - **INT4 Mode**: 32 logical lanes $\times$ 2 packed elements/lane $\rightarrow 32 \times 2 \times 4\text{b} = 256\text{ bits}$ ($64\text{ ops}$).
   - **FP16 Mode**: 16 arithmetic elements $\rightarrow 16 \times 16\text{b} = 256\text{ bits}$.
   - **INT32 Mode**: 8 arithmetic elements $\rightarrow 8 \times 32\text{b} = 256\text{ bits}$.
-- **8-Entry Reconvergence Stack**: Each warp stores up to 8 nested `{reconv_pc [31:0], reconv_mask [31:0]}` branch tokens.
-- **Warp Architectural States**:
-  - `WARP_READY`: Eligible for instruction issue.
-  - `WARP_RUNNING`: Active in pipeline execution.
-  - `WARP_WAIT_MEM`: Stalled awaiting LSU response from local scratchpad, NoC-accessed global buffer, or DMA memory service (No V1 coherent D-cache).
-  - `WARP_WAIT_NMU`: Stalled awaiting tagged NMU completion (`TENS_WAIT`).
-  - `WARP_WAIT_BARRIER`: Stalled at cluster barrier synchronizer (`BARRIER`).
-  - `WARP_WAIT_AGENT`: Stalled awaiting agent task/event dispatch.
-  - `WARP_DONE`: Thread execution terminated.
+- **8-Entry Reconvergence Stack**: Stores `{reconv_pc [31:0], reconv_mask [31:0]}` for nested `if-else` divergence.
 
 ---
 
-## 5. Custom 2-Opcode Extension & Decoupled Tensor Protocol
+## 5. Custom ISA Extensions & Decoupled Accelerator Protocol
 
-### 5.1 Custom Opcode Allocation
-- **`CUSTOM-0 (0x0B)`: Tensor / Neural Acceleration**
-  - `TENS_CFG` (`funct3=000`): Configure tensor operation descriptor via memory-mapped CSRs.
-  - `TENS_LAUNCH` (`funct3=001`): Enqueue tensor job into cluster NMU command FIFO.
-  - `TENS_WAIT` (`funct3=010`): Stall warp until tagged NMU job completion.
-  - `TENS_ACT` (`funct3=011`): Non-linear activation execution (GELU, ReLU, Sigmoid).
-  - `TENS_SOFTMAX` (`funct3=100`): 8-lane online Softmax normalization.
-  - `TENS_NORM` (`funct3=101`): RMSNorm vector normalization.
-- **`CUSTOM-1 (0x2B)`: SIMT / Agent Control / Synchronization**
+### 5.1 Custom Opcode Space
+- **`CUSTOM-0 (0x0B)`: Tensor & Neural Acceleration**
+  - `TENS_CFG` (`funct3=000`): Configure tensor operation descriptor registers.
+  - `TENS_LAUNCH` (`funct3=001`): Asynchronous GEMM dispatch to cluster NMU command FIFO.
+  - `TENS_WAIT` (`funct3=010`): Blocking warp synchronization waiting on accelerator tag `{core_id, warp_id, cmd_id}`.
+  - `TENS_ACT` (`funct3=011`): Asynchronous Activation dispatch (GELU, ReLU, Sigmoid).
+  - `TENS_SOFTMAX` (`funct3=100`): Asynchronous 8-lane Online Softmax normalization dispatch.
+  - `TENS_NORM` (`funct3=101`): Asynchronous RMSNorm vector normalization dispatch.
+- **`CUSTOM-1 (0x2B)`: SIMT / Agent Control / Memory Barrier**
   - `WARP_YIELD` (`funct3=000`): Voluntary context yield to next ready warp.
   - `BARRIER` (`funct3=001`): Cluster hardware barrier synchronization.
   - `AGENT_DAG_INSERT` (`funct3=010`): Insert task descriptor into hardware DAG scheduler.
   - `AGENT_DAG_FIRE` (`funct3=011`): Signal completion event for completed task ID.
   - `AGENT_KV_ALLOC` (`funct3=100`): Allocate physical KV block from free pool.
-  - `AGENT_KV_LOOKUP` (`funct3=101`): Translate logical KV block to physical SRAM/DRAM address.
+  - `AGENT_KV_LOOKUP` (`funct3=101`): Translate logical KV block to physical 64-bit address.
   - `AGENT_TOKEN_ROUTE` (`funct3=110`): Route token packet to destination cluster over NoC.
+  - `AI_FENCE` (`funct3=111`): Memory fence ensuring all prior writes are globally visible.
 
-### 5.2 Decoupled Tensor Execution Sequence
-```
-       Host / Core Software
-               │
-               ▼  (Setup CSR Descriptors)
-      [CSR_TENSOR_SRC_A / B / C / DIM_M / K / N]
-               │
-               ▼
-          [TENS_CFG]
-               │
-               ▼
-         [TENS_LAUNCH]
-               │
-          FIFO Full? ────► [YES: Stall Core Issuing Stage (No Drop)]
-               │ [NO]
-               ▼
-   Cluster NMU Command FIFO (8 Entries)
-   (Signals: nmu_ready, nmu_busy, nmu_done, nmu_error)
-               │
-               ▼
-     Round-Robin Arbiter (10 Cores)
-               │
-               ▼
-     8x8 Systolic Array (64 PEs)
-               │
-               ▼  (Completion Tag Broadcast)
-   [cmd_id, core_id, warp_id] ──► Wake Up Blocked [TENS_WAIT]
+### 5.2 Cluster Hardware Barrier Synchronization Semantics
+- **Barrier Organization**: 16 concurrent barrier instances per cluster (`barrier_id [3:0]`).
+- **Participant Masks**:
+  - `participant_mask [39:0]`: Bitmask of participating warps (10 cores $\times$ 4 warps = 40 warps).
+  - `arrival_mask [39:0]`: Registered mask tracking arrived warps.
+- **Release Condition**:
+  $$\text{Release} = (\text{arrival\_mask} == \text{participant\_mask})$$
+  - Barrier 0: Global cluster synchronization across all 40 active warps.
+  - Barriers 1..15: Dynamically configured participant subsets for fine-grained warp grouping.
+
+---
+
+## 6. Memory Model, Synchronization & 64-bit DMA
+
+### 6.1 Explicit Software-Managed Memory Ordering
+- **Memory Model**: Explicit software-managed synchronization; no implicit hardware cache coherence in V1.
+- **Ordering Semantics**:
+  - **Core Loads/Stores**: Strictly ordered within each individual warp context.
+  - **DMA $\rightarrow$ SPAD Transfers**: Completion event/interrupt establishes memory visibility.
+  - **SPAD $\rightarrow$ DMA Transfers**: Explicit `AI_FENCE` ensures SPAD writeback before DMA launch.
+  - **NMU $\rightarrow$ SPAD Transfers**: NMU completion tag broadcast establishes visibility before `TENS_WAIT` unblocks warp.
+  - **Agent Events**: Event firing establishes task dependency and output data visibility.
+
+### 6.2 512-bit Scatter-Gather DMA Descriptor Structure
+```systemverilog
+typedef struct packed {
+    logic [63:0]  src_addr;         // 64-bit source physical address
+    logic [63:0]  dst_addr;         // 64-bit destination physical address
+    logic [31:0]  length;           // Transfer length in bytes
+    logic [31:0]  stride;           // Source/destination stride
+    logic [7:0]   burst_len;        // AXI burst length (1..256 beats)
+    logic [7:0]   dest_cluster;     // Target cluster ID (0..9) or broadcast
+    logic         direction;        // 1 = DRAM -> SPAD, 0 = SPAD -> DRAM
+    logic         interrupt_en;     // Assert interrupt on completion
+    logic [63:0]  next_desc_ptr;    // 64-bit pointer to next descriptor (64'h0 = terminal)
+    logic [31:0]  flags;            // Control flags and status
+} dma_descriptor_t;
 ```
 
 ---
 
-## 6. NoC 160-Bit Flit & Gateway Architecture
+## 7. NoC 160-Bit Flit & 64-Bit System Addressing
 
 ```
 +-----------------------------------------------------------------------------------------------+
@@ -200,117 +214,58 @@ An ASIC-oriented, domain-specific many-core AI accelerator combining programmabl
 +-----------------------------------------------------------------------------------------------+
 ```
 
-### Exact 128-Bit Payload Bit-Allocation
+### Exact 128-Bit Payload Bit-Allocation (64-bit Physical Address)
 | `msg_type` | Name | 128-Bit Payload Field Definitions (`payload [127:0]`) | Bit Breakdown |
 |---|---|---|---|
-| `0x01` | `MSG_MEM_REQ` | `[127:96] addr[31:0]`<br>`[95:80] byte_enable[15:0]`<br>`[79:64] transaction_id[15:0]`<br>`[63:32] write_data[31:0]`<br>`[31:24] burst_len[7:0]`<br>`[23] rw_flag`<br>`[22:19] req_type[3:0]`<br>`[18:0] reserved[18:0]` | 32+16+16+32+8+1+4+19 = **128 bits** |
+| `0x01` | `MSG_MEM_REQ` | `[127:64] addr[63:0]`<br>`[63:48] transaction_id[15:0]`<br>`[47:32] byte_enable[15:0]`<br>`[31:24] burst_len[7:0]`<br>`[23] rw_flag`<br>`[22:19] req_type[3:0]`<br>`[18:0] reserved[18:0]` | 64+16+16+8+1+4+19 = **128 bits** |
 | `0x02` | `MSG_MEM_RESP` | `[127:112] transaction_id[15:0]`<br>`[111:96] status[15:0]`<br>`[95:32] read_data[63:0]`<br>`[31:0] reserved[31:0]` | 16+16+64+32 = **128 bits** |
 | `0x03` | `MSG_AGENT_TASK` | `[127:120] task_id[7:0]`<br>`[119:88] parent_mask[31:0]`<br>`[87:80] prio[7:0]`<br>`[79:72] dest_cluster[7:0]`<br>`[71:40] instruction_ptr[31:0]`<br>`[39:8] context_ptr[31:0]`<br>`[7:0] reserved[7:0]` | 8+32+8+8+32+32+8 = **128 bits** |
 | `0x04` | `MSG_AGENT_EVENT`| `[127:120] task_id[7:0]`<br>`[119:112] completion_code[7:0]`<br>`[111:96] event_id[15:0]`<br>`[95:64] token_val[31:0]`<br>`[63:0] reserved[63:0]` | 8+8+16+32+64 = **128 bits** |
 | `0x05` | `MSG_BARRIER_SYNC`| `[127:120] cluster_id[7:0]`<br>`[119:112] barrier_id[7:0]`<br>`[111:72] warp_mask[39:0]`<br>`[71:0] reserved[72:0]` | 8+8+40+72 = **128 bits** |
 | `0x06` | `MSG_TOKEN_ROUTE`| `[127:112] token_id[15:0]`<br>`[111:104] dest_cluster[7:0]`<br>`[103:8] payload_data[95:0]`<br>`[7:0] reserved[7:0]` | 16+8+96+8 = **128 bits** |
 
-### Global Gateway Node Attachments
-- **Global Agent Gateway**: Attached to **Router (0,0)**.
-- **Global Memory Gateway**: Attached to **Router (9,9)**.
-- **Host DMA Gateway**: Attached to **Router (5,0)**.
-Gateways attach as local endpoints directly to the respective tile's 5-port router without consuming additional mesh hops.
-
 ---
 
-## 7. Memory & DMA Architecture
+## 8. Verification Ladder & Coverage Sign-Off Criteria
 
+### 8.1 17-Stage Verification Ladder
 ```
-                  External DRAM
-                       ▲
-                       │
-          512-bit Memory-Mapped AXI Master
-                       │
-                      DMA
-          (Descriptor Engine & Chaining)
-                       │
-              512-bit Internal Stream
-                       │
-                 Global Buffer
-            (4 MB / 16 Banks x 256 KB)
-                       │
-                  10x10 NoC
-                       │
-             Cluster Scratchpad SRAM
-            (64 KB / 8 Banks x 8 KB)
-                       │
-                 Compute Cores
-```
-
----
-
-## 8. Hardware Agentic AI Subsystem
-
-### Software vs Hardware Contract
-- **Software Runtime**: Executes high-level LLM reasoning, agent planning, prompt orchestration, graph generation, and high-level scheduling policy.
-- **Hardware Acceleration Engine**:
-  1. **Hardware DAG Task Scheduler**: 64 active task entries, dependency bitmask evaluation (target: 1 cycle), 8-level priority arbiter, dynamic cluster dispatch.
-  2. **Hardware Paged KV-Cache Manager**: 1024 physical pages, logical-to-physical translation table with reference counting for zero-copy prefix sharing, supporting `ALLOC`, `FREE`, `LOOKUP`, `INC_REF`, `DEC_REF`, `PREFETCH`, and `EVICT`.
-  3. **Multi-Agent Token/Event Router**: Inter-cluster event formatting and NoC dispatch.
-  4. **Speculative Tree Search Engine (MCTS)**: Optional Research Extension for hardware UCT scoring and candidate branch pruning.
-
----
-
-## 9. Required State Machines (FSMs) & Error Model
-
-### 9.1 Core Subsystem FSMs
-- **Core Pipeline FSM**: `FETCH` $\rightarrow$ `DECODE` $\rightarrow$ `ISSUE` $\rightarrow$ `EXECUTE` $\rightarrow$ `MEM_WAIT` $\rightarrow$ `NMU_WAIT` $\rightarrow$ `WB`.
-- **NMU Engine FSM**: `IDLE` $\rightarrow$ `DEQUEUE` $\rightarrow$ `LOAD_WEIGHT` $\rightarrow$ `LOAD_ACT` $\rightarrow$ `COMPUTE` $\rightarrow$ `DRAIN` $\rightarrow$ `COMPLETE` $\rightarrow$ `ERROR`.
-- **NoC Router Pipeline FSM**: `INPUT_BUFFER` $\rightarrow$ `ROUTE` $\rightarrow$ `VC_ALLOC` $\rightarrow$ `SW_ALLOC` $\rightarrow$ `TRANSFER`.
-- **DMA Controller FSM**: `IDLE` $\rightarrow$ `FETCH_DESC` $\rightarrow$ `READ` $\rightarrow$ `WRITE` $\rightarrow$ `STREAM` $\rightarrow$ `COMPLETE` $\rightarrow$ `ERROR`.
-- **DAG Scheduler FSM**: `IDLE` $\rightarrow$ `ALLOC` $\rightarrow$ `WAIT_DEP` $\rightarrow$ `READY` $\rightarrow$ `DISPATCH` $\rightarrow$ `COMPLETE` $\rightarrow$ `ERROR`.
-- **KV Manager FSM**: `IDLE` $\rightarrow$ `ALLOCATE` $\rightarrow$ `LOOKUP` $\rightarrow$ `REF_UPDATE` $\rightarrow$ `PREFETCH` $\rightarrow$ `EVICT` $\rightarrow$ `ERROR`.
-
-### 9.2 Unified Error Codes
-`NMU_ERROR` (`0x01`), `DMA_ERROR` (`0x02`), `NOC_ERROR` (`0x03`), `KV_ERROR` (`0x04`), `DAG_ERROR` (`0x05`), `ILLEGAL_INSTR` (`0x06`), `MISALIGNED_ACCESS` (`0x07`), `FIFO_OVERFLOW` (`0x08`), `FIFO_UNDERFLOW` (`0x09`).
-
----
-
-## 10. Verification Ladder & Coverage Sign-Off Criteria
-
-### 10.1 17-Stage Verification Ladder
-```
-[GATE 0] Requirements & Architecture Freeze
+[GATE 0]  Requirements & Architecture Specification Freeze (Architecture Baseline v1.0)
     ↓
-[GATE 1] Single AI Tile Verification (RV32IM + 4 Warps + Active Mask + 8 Reconv + SIMD + LSU)
+[GATE 1]  Single AI Tile Microarchitecture (riscv_ai_tile.sv)
     ↓
-[GATE 2] Systolic NMU Verification (8x8 Array + Command FIFO + Skew/Drain)
+[GATE 2]  Systolic NMU (neural_systolic_engine_8x8.sv)
     ↓
-[GATE 3] Single Cluster Subsystem (10 Tiles + 64KB SPAD + NMU Arbiter + Barrier)
+[GATE 3]  Single Cluster Subsystem (ai_gpu_cluster.sv)
     ↓
-[GATE 4] Single 5-Port NoC Router Verification (160b Flits + 3 VCs + XY DOR)
+[GATE 4]  Single 5-Port Router (noc_router_5port.sv)
     ↓
-[GATE 5] Small NoC Test (2x2 / 4x4 Mesh)
+[GATE 5]  Small NoC Mesh (2x2 / 4x4)
     ↓
-[GATE 6] 10x10 Full NoC Mesh Verification
+[GATE 6]  Full 10x10 NoC Mesh
     ↓
-[GATE 7] 10 Clusters / 100 Cores Integration
+[GATE 7]  10-Cluster / 100-Core Compute Grid
     ↓
-[GATE 8] Global Memory + DMA + Agentic Engine Integration
+[GATE 8]  Global Memory + DMA + Agentic Coprocessor
     ↓
-[GATE 9] Formal Coverage Closure & Signoff (IMC 100% Target)
+[GATE 9]  Coverage Closure & Verification Signoff — IMC
     ↓
 [GATE 10] RTL Lint (SpyGlass) / CDC / RDC / Formal Equivalence (LEC)
     ↓
 [GATE 11] Logic Synthesis (Cadence Genus / Synopsys DC)
     ↓
-[GATE 12] Gate-Level Simulation (GLS with SDF Timing)
+[GATE 12] Gate-Level Simulation (GLS with Timing Annotation)
     ↓
-[GATE 13] Static Timing Analysis (STA at 1.0 GHz) / Power / Area
+[GATE 13] Static Timing Analysis (STA @ 1.0 GHz) / Power / Area
     ↓
 [GATE 14] Physical Design: Floorplanning, Placement, CTS, Routing (Innovus)
     ↓
 [GATE 15] Physical Verification: DRC, LVS, Dynamic IR-Drop, EM
     ↓
-[GATE 16] GDSII Tapeout Readiness & Signoff
+[GATE 16] GDSII Tapeout Readiness & Sign-Off
 ```
 
-### 10.2 Formal Sign-Off Criteria
+### 8.2 Formal Coverage Targets
 ```text
 ================================================================================
  [CADENCE INCISIVE / IMC COVERAGE SIGNOFF TARGETS]
@@ -329,7 +284,7 @@ Gateways attach as local endpoints directly to the respective tile's 5-port rout
 
 ---
 
-## 11. Engineering Evidence Status Classification
+## 9. Engineering Evidence Status Classification
 
 | Architectural Claim | Evidence Status | Basis of Evaluation |
 |---|---|---|
