@@ -8,8 +8,8 @@
 The **100-Core Custom RISC-V SIMT AI GPU** is an **ASIC-oriented RTL-to-GDSII research prototype** architected as a **domain-specific many-core accelerator**. 
 
 The hardware microarchitecture combines the programmability of RISC-V SIMT execution with specialized tensor and agentic hardware engines:
-1. **SIMT Execution Model**: 100 AI Compute Cores (RV32IM + custom 256-bit packed AI/SIMD datapath). Each core maintains 4 architectural warp contexts with a 32-lane logical warp width, SIMT active-lane mask, reconvergence stack, and single-cycle ready warp selection into a shared execution datapath (latency is hidden by switching to another ready warp).
-2. **Dedicated Matrix Acceleration (NMU)**: 10 x 8x8 INT8 weight-stationary systolic Neural Matrix Units (640 MACs/cycle, **1.28 TOPS INT8 @ 1 GHz theoretical peak**) controlled via a decoupled CSR descriptor interface (`TENS_CFG` -> `TENS_LAUNCH` -> `TENS_WAIT`).
+1. **SIMT Execution Model**: 100 AI Compute Cores (RV32IM + custom 256-bit packed AI/SIMD datapath). Each core maintains 4 architectural warp contexts with a 32-lane logical warp width, SIMT active-lane mask, 8-entry branch reconvergence stack, and single-cycle ready warp selection into a shared execution datapath (latency is hidden by switching to another ready warp).
+2. **Dedicated Matrix Acceleration (NMU)**: 10 x 8x8 INT8 weight-stationary systolic Neural Matrix Units (640 MACs/cycle, **Theoretical Peak INT8 Throughput: 1.28 TOPS @ 1 GHz target**) controlled via a decoupled CSR descriptor interface (`TENS_CFG` -> `TENS_LAUNCH` -> `TENS_WAIT`).
 3. **Cluster Scratchpad Architecture**: 10 modular clusters, each with a 64KB banked scratchpad SRAM (8 banks x 8KB, 1R/1W per bank) featuring bank-conflict detection, round-robin arbitration, DMA ingress, and broadcast support.
 4. **Physical-to-Logical 10x10 NoC Mesh**: 100 5-port routers (1 router per core tile) organized as a 10x10 2D mesh, with deterministic XY routing and 3 Virtual Channels (`VC0: Request`, `VC1: Response`, `VC2: Agent/Control`) to prevent cyclic channel dependencies.
 5. **Hardware Agentic AI Engine**: Hardware acceleration for software runtime tasks: 64-entry task DAG dependency resolution and priority scheduling, Hardware KV-Block Translation and Allocation Engine (PagedAttention-inspired logical-to-physical block mapping with reference counts), and token routing.
@@ -21,7 +21,7 @@ The hardware microarchitecture combines the programmability of RISC-V SIMT execu
 
 | Parameter | Frozen Architectural Value | Derivation / Basis |
 |---|---|---|
-| **AI Cores** | 100 | 10 Clusters x 10 Cores |
+| **AI Cores** | 100 | 10 Modular Clusters x 10 Cores |
 | **Clusters** | 10 | 1 Cluster per Row in 10x10 grid |
 | **Cores / Cluster** | 10 | 10 Tiles per Row |
 | **NoC Topology** | 10 x 10 2D-Mesh | 100 Router Nodes (1 per Core Tile) |
@@ -29,7 +29,7 @@ The hardware microarchitecture combines the programmability of RISC-V SIMT execu
 | **NoC Virtual Channels** | 3 VCs | `VC0: Req`, `VC1: Resp`, `VC2: Agent` |
 | **NoC Flit Width** | 160 bits Total (32b Header + 128b Payload) | Header: Type(2), VC(2), Src(8), Dst(8), Msg(8), Flags(4) |
 | **Warp Contexts / Core** | 4 Concurrent Warps | Latency Hiding Single-Cycle Selection |
-| **Warp Logical Width** | 32 Lanes (INT8) | SIMT Active-Lane Mask (32-bit) & Reconvergence Stack |
+| **Warp Logical Width** | 32 Lanes | 32-bit `active_mask` + 8-entry Reconvergence Stack |
 | **SIMD Datapath Width** | 256 bits | 32xINT8, 64xINT4, 16xFP16, 8xINT32 |
 | **NMU / Cluster** | 1 Unit (8x8 Weight-Stationary) | 64 PEs per Cluster |
 | **Total Systolic PEs** | 640 PEs across Chip | 10 Clusters x 64 PEs |
@@ -40,7 +40,7 @@ The hardware microarchitecture combines the programmability of RISC-V SIMT execu
 | **Agent DAG Task Queue** | 64 Tasks | Dependency Bitmask & 8 Priority Levels |
 | **KV-Cache Memory Pool** | 1024 Physical Blocks | Logical-to-Physical Table & Refcount Prefix Sharing |
 | **Target Clock Frequency** | 1.0 GHz (`clk`) | `ASSUMED` Design Target for Synthesis |
-| **Peak INT8 Performance** | 1.28 TOPS | `DERIVED` (640 MACs/cyc x 2 ops/MAC x 1.0 GHz) |
+| **Theoretical Peak INT8** | 1.28 TOPS | `DERIVED` (640 MACs/cyc x 2 ops/MAC x 1.0 GHz) |
 
 ---
 
@@ -63,7 +63,7 @@ $$\text{core\_id} = y \times 10 + x, \quad \text{cluster\_id} = y$$
 
 ---
 
-## 4. Clocking & Reset Architecture
+## 4. Clocking, Reset & Clock Gating Architecture
 
 ```
                                  [External clk_in (1.0 GHz)]
@@ -86,53 +86,28 @@ $$\text{core\_id} = y \times 10 + x, \quad \text{cluster\_id} = y$$
 ```
 
 - **Clock Domain**: Single synchronous clock domain at 1.0 GHz nominal (`clk`).
+- **Cluster Clock Gating Enable Policy**:
+  $$\text{cluster\_clk\_en} = (\text{core\_active\_mask} \ne 0) \lor \text{nmu\_busy} \lor \text{dma\_active} \lor \text{barrier\_active} \lor \text{agent\_event\_pending}$$
+  Clock gating is implemented strictly with standard latch-based Integrated Clock Gating (ICG) cells, preventing combinational glitches during CTS.
 - **Reset Distribution**: Active-low asynchronous assertion with 2-stage flip-flop meta-hardened synchronous de-assertion tree (`rst_n`).
 
 ---
 
 ## 5. Core Microarchitecture & SIMT Divergence Model
 
-```
-                    AI COMPUTE CORE ARCHITECTURE (Tile x,y)
-                                      │
-               ┌──────────────────────▼──────────────────────┐
-               │              4-Warp Context State           │
-               │  Warp 0: PC0, Mask0[31:0], State0, Reconv0  │
-               │  Warp 1: PC1, Mask1[31:0], State1, Reconv1  │
-               │  Warp 2: PC2, Mask2[31:0], State2, Reconv2  │
-               │  Warp 3: PC3, Mask3[31:0], State3, Reconv3  │
-               └──────────────────────┬──────────────────────┘
-                                      │
-                              Warp Scheduler
-                      (Single-Cycle Round-Robin/Prio)
-                                      │
-                              PC / Fetch Engine
-                                      │
-                           Instruction Decoder Unit
-                                      │
-               ┌──────────────────────┼──────────────────────┐
-               ▼                      ▼                      ▼
-         Scalar RV32IM        256-bit Packed SIMD        AI Command
-          Integer ALU         Execution Engine           Interface
-               │                      │                      │
-               └──────────────────────┼──────────────────────┘
-                                      │
-                           LSU & Memory Interface
-                                      │
-                        Scratchpad / Local NoC Router
-```
-
-- **Warp Logical Model**: 32 logical lanes executing in lockstep over the 256-bit SIMD execution engine.
-- **Divergence Support**: Each warp maintains a 32-bit active lane mask (`active_mask [31:0]`) and a 4-entry branch reconvergence stack (`reconv_pc`, `reconv_mask`) to handle branch divergence and reconvergence without full CPU overhead.
-- **SIMD Precision Modes**:
-  - INT8 Mode: 32 lanes x 8 bits = 256 bits.
-  - INT4 Mode: 64 lanes x 4 bits = 256 bits.
-  - FP16 Mode: 16 lanes x 16 bits = 256 bits.
-  - INT32 Mode: 8 lanes x 32 bits = 256 bits.
+- **Warp Logical vs Physical SIMD Mapping**:
+  The warp contains 32 logical lanes. The 256-bit packed execution engine processes elements aligned to these logical lanes:
+  - **INT8 Mode**: 1 element per lane $\longrightarrow 32\text{ lanes} \times 8\text{b} = 256\text{ bits}$.
+  - **INT4 Mode**: 2 packed elements per lane $\longrightarrow 32\text{ lanes} \times 2 \times 4\text{b} = 256\text{ bits}$ (64 packed operations).
+  - **FP16 Mode**: 1 element per 2 lanes (16 active lanes) $\longrightarrow 16 \times 16\text{b} = 256\text{ bits}$.
+  - **INT32 Mode**: 1 element per 4 lanes (8 active lanes) $\longrightarrow 8 \times 32\text{b} = 256\text{ bits}$.
+- **SIMT Divergence Support**:
+  - Each warp maintains a 32-bit active lane mask (`active_mask [31:0]`).
+  - An **8-entry Reconvergence Stack** stores `{reconv_pc [31:0], reconv_mask [31:0]}` entries to correctly evaluate nested `if-else` divergence and reconvergence without full CPU overhead.
 
 ---
 
-## 6. NoC Packet & Flit Protocol
+## 6. NoC 160-Bit Flit & Payload Protocol
 
 ```
 +-----------------------------------------------------------------------------------------------+
@@ -144,11 +119,21 @@ $$\text{core\_id} = y \times 10 + x, \quad \text{cluster\_id} = y$$
 +-----------------------------------------------------------------------------------------------+
 ```
 
+### 128-Bit Payload Semantics per Message Type
+| `msg_type` | Name | 128-Bit Payload Field Definitions (`payload [127:0]`) |
+|---|---|---|
+| `0x01` | `MSG_MEM_REQ` | `{32'h0, addr[31:0], byte_enable[15:0], transaction_id[15:0], src_core[7:0], rw_flag[7:0], write_data[31:0]}` |
+| `0x02` | `MSG_MEM_RESP` | `{32'h0, transaction_id[15:0], status[15:0], read_data[63:0]}` |
+| `0x03` | `MSG_AGENT_TASK` | `{task_id[7:0], parent_mask[31:0], prio[7:0], dest_cluster[7:0], instruction_ptr[31:0], context_ptr[31:0], 8'h0}` |
+| `0x04` | `MSG_AGENT_EVENT`| `{task_id[7:0], completion_code[7:0], event_id[15:0], token_val[31:0], 64'h0}` |
+| `0x05` | `MSG_BARRIER_SYNC`| `{cluster_id[7:0], barrier_id[7:0], warp_mask[39:0], 72'h0}` |
+| `0x06` | `MSG_TOKEN_ROUTE`| `{token_id[15:0], dest_cluster[7:0], payload_data[95:0], 8'h0}` |
+
 ### Channel Dependency Separation
 - `VC0 (Request)`: Core read/write memory requests to Scratchpad and L2.
 - `VC1 (Response)`: Memory read returns and write completions.
 - `VC2 (Agent/Control)`: Autonomous task graph dispatches, barrier synchronization, and token routing.
-- **Deadlock Assessment**: The NoC is designed for deadlock freedom using XY dimension-order routing and strict VC/channel-dependency separation. Deadlock freedom shall be formally validated by channel-dependency graph analysis and multi-port stress verification.
+- **Deadlock Assessment**: The NoC is designed for deadlock freedom using XY dimension-order routing and strict VC/channel-dependency separation. Deadlock freedom shall be validated by channel-dependency analysis and stress verification.
 
 ---
 
@@ -204,7 +189,7 @@ $$\text{core\_id} = y \times 10 + x, \quad \text{cluster\_id} = y$$
 |---|---|---|
 | 100-Core SIMT Architecture | `DERIVED` | 10 clusters x 10 cores, core_id = y*10+x |
 | 8x8 Systolic NMU Logic | `VERIFIED` | Verified against mathematical matrix multiplication golden model |
-| 1.28 TOPS Peak Throughput | `DERIVED` | 10 clusters x 64 MACs/cycle x 2 ops/MAC x 1.0 GHz |
+| Theoretical Peak 1.28 TOPS | `DERIVED` | 10 clusters x 64 MACs/cycle x 2 ops/MAC x 1.0 GHz |
 | Target 1.0 GHz Frequency | `ASSUMED` | Target synthesis constraint in SDC |
 | NoC Deadlock Freedom | `UNVERIFIED` | Strict VC separation under XY DOR; formal CDG analysis planned |
 | Full-Chip Regression (84/84 Tests) | `VERIFIED` | Executed simulator logs in Cadence Incisive / Vivado XSim |
