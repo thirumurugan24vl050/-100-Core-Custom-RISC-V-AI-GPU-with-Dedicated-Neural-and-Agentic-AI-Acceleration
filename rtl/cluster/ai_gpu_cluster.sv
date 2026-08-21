@@ -313,7 +313,8 @@ module ai_gpu_cluster import riscv_ai_gpu_pkg::*; (
         .core_barrier_warp          (core_barr_warp),
         .barrier_participating_mask (40'hFFFFFFFFFF), // All 40 warps by default
         .barrier_release_broadcast  (barr_release),
-        .current_arrived_mask       ()
+        .current_arrived_mask       (),
+        .barrier_generation         ()
     );
 
     // 4. Dedicated 8x8 Neural Systolic Array Engine Instance
