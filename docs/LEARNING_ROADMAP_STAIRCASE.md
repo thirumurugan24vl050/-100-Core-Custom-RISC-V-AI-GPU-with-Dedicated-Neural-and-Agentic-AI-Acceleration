@@ -1,102 +1,145 @@
-# The Complete VLSI Engineering Staircase & Roadmap
-## From Digital Logic Fundamentals to 100-Core Custom RISC-V SIMT AI GPU (RTL-to-GDSII)
+# The Complete Cadence-Centered VLSI Engineering Staircase & Roadmap
+## 100-Core Custom RISC-V SIMT AI GPU: Digital Logic to GDSII
 
 ---
 
-## 1. The Core Engineering Rule
-For every architectural concept and hardware module, progress through the 8-step verification cycle:
-$$\text{Theory} \longrightarrow \text{RTL Design} \longrightarrow \text{Self-Checking Testbench} \longrightarrow \text{Simulation \& Waveforms} \longrightarrow \text{Logic Synthesis} \longrightarrow \text{Timing / Area Analysis} \longrightarrow \text{Hierarchical Integration} \longrightarrow \text{Physical Sign-Off}$$
+## 1. Master Engineering Rule
+For every architectural concept and hardware module in the 100-Core AI GPU, progress strictly through the 8-step verification cycle:
+$$\text{Theory} \longrightarrow \text{RTL Design} \longrightarrow \text{Self-Checking Testbench} \longrightarrow \text{Xcelium Simulation} \longrightarrow \text{IMC Coverage} \longrightarrow \text{Genus Synthesis} \longrightarrow \text{Innovus P\&R} \longrightarrow \text{Sign-Off Evidence}$$
 
 ---
 
-## 2. The 30-Level Educational & Implementation Staircase
+## 2. Complete 50-Level Engineering Staircase
 
-### Level 0 to Level 4: Digital Foundations to Synthesizable SystemVerilog
-- **Level 0: Number Systems & Boolean Algebra**: Binary, Hexadecimal, 2's complement signed representation, Fixed-point arithmetic, Karnaugh maps, De Morgan's laws, and fundamental combinational blocks (Mux, Decoder, ALU, Priority Encoder, Barrel Shifter).
-- **Level 1: Sequential Circuits & FSMs**: D-Flip-Flops, Registers, Synchronous Counters, Moore & Mealy FSMs with illegal-state recovery.
-- **Level 2: Simulation & Event Scheduler**: Clock/Reset generation, Delta cycles, Blocking (`=`) vs Non-blocking (`<=`) semantics.
-- **Level 3: SystemVerilog IEEE 1800-2017**: `logic`, `always_comb`, `always_ff`, packages, enums, packed structs, interfaces, and generate loops.
-- **Level 4: Hardware Synthesis Intuition**: Translating RTL statements into physical standard cells (Multiplexers, Full Adders, Multiplier Trees, Flip-Flop register banks).
-
----
-
-### Level 5 to Level 10: Memories, Handshakes & RISC-V Processor Core
-- **Level 5: Memory Subsystems**: Single-port (1R/1W) SRAM macros, Register Files, 64KB Banked Scratchpad with conflict detection and round-robin arbitration.
-- **Level 6: Handshaking & Queues**: Valid/Ready flow control, Credit-based flow control, Synchronous Command FIFOs.
-- **Level 7 & 8: CPU Architecture & 5-Stage Pipelining**:
-  - Pipelined execution stages: `IF` (Fetch) $\rightarrow$ `ID` (Decode) $\rightarrow$ `EX` (Execute) $\rightarrow$ `MEM` (Memory) $\rightarrow$ `WB` (Writeback).
-  - Hazard Resolution: RAW Data Hazards, Load-Use Interlocks, Forwarding Muxes, Branch Hazard Flushes.
-- **Level 9 & 10: RV32IM Architecture**:
-  - Base Integer: `ADD`, `SUB`, `AND`, `OR`, `XOR`, `SLT`, `SLL`, `SRL`, `SRA`, `LW`, `SW`, `BEQ`, `BNE`, `JAL`, `JALR`.
-  - M-Extension: Hardware integer multiplication and division (`MUL`, `MULH`, `DIV`, `REM`).
-
----
-
-### Level 11 to Level 15: SIMT GPU Core, 256-Bit SIMD & Systolic NMU
-- **Level 11 & 12: SIMT GPU Execution Model**:
-  - 4 Hardware Warp Contexts ($W_0..W_3$) per Core with single-cycle ready warp selection.
-  - 32-Lane Logical Warp Width with 32-bit `active_mask` per warp.
-  - 8-Entry Branch Reconvergence Stack (`{reconv_pc [31:0], reconv_mask [31:0]}`).
-  - Latency Hiding: Switching between ready warps on memory or tensor stalls.
-- **Level 13: 256-Bit Packed AI/SIMD Unit**:
-  - INT8 Mode: 32 parallel signed operations per cycle.
-  - INT4 Mode: 64 parallel signed nibble operations per cycle (2 packed elements per logical lane).
-  - FP16 Mode: 16 parallel half-precision arithmetic operations.
-  - INT32 Mode: 8 parallel 32-bit operations.
-- **Level 14 & 15: Systolic Neural Matrix Unit (NMU)**:
-  - 8x8 = 64 PE Weight-Stationary 2D systolic array per cluster ($640\text{ MACs/cycle}$ across 10 clusters = **1.28 TOPS INT8 @ 1 GHz**).
-  - Processing Element (PE): Signed INT8 $\times$ signed INT8 $\rightarrow$ signed 32-bit accumulation.
-  - Decoupled CSR Command Interface (`TENS_CFG` $\rightarrow$ `TENS_LAUNCH` $\rightarrow$ `TENS_WAIT`).
-  - 8-Entry Command FIFO with backpressure stall and completion tag wake-up (`{cmd_id, core_id, warp_id}`).
-
----
-
-### Level 16 to Level 20: 10x10 NoC Mesh, 512-Bit DMA & Agentic Hardware
-- **Level 16: 10x10 2D-Mesh Network-on-Chip (NoC)**:
-  - 100 5-Port Routers (North, South, East, West, Local) with Dimension-Order XY Routing.
-  - 3 Virtual Channels (`VC0: Request`, `VC1: Response`, `VC2: Agent/Control`) to prevent cyclic channel dependencies.
-  - 160-Bit Unified Flit: 32-bit Authoritative Header + 128-bit Packed Payload (64-bit physical address).
-  - Dedicated Gateway Router Attachments: (0,0) Agent Gateway, (9,9) Memory Gateway, (5,0) Host DMA Gateway.
-- **Level 17 & 18: 512-Bit Scatter-Gather DMA Controller**:
-  - 512-bit Memory-Mapped AXI Master for external DRAM transfers + internal streaming datapath toward scratchpads.
-  - 512-bit Aligned Scatter-Gather Descriptor chaining format.
-- **Level 19: Hardware Agentic DAG Task Scheduler**:
-  - 64-Entry Task Queue with dynamic dependency bitmask evaluation (target: 1-cycle readiness evaluation).
-  - 8-Level Priority Arbiter with inter-cluster dynamic task dispatch.
-- **Level 20: Paged KV-Cache Manager**:
-  - 1024 Physical Pages translation table with reference counting for zero-copy prefix sharing.
-  - Hardware operations: `ALLOC`, `FREE`, `LOOKUP`, `INC_REF`, `DEC_REF`, `PREFETCH`, `EVICT`.
+```
+[01. Linux/Git/Tcl/EDA] ──► [02. Number Systems/Logic] ──► [03. Combinational Logic] ──► [04. Sequential & FSM]
+           │
+           ▼
+[05. Verilog HDL] ───────► [06. Xcelium Simulation] ───► [07. SystemVerilog] ────────► [08. Synthesizable RTL]
+           │
+           ▼
+[09. Width/Signedness] ──► [10. Memories/FIFOs] ────────► [11. C for Hardware] ───────► [12. RISC-V Assembly]
+           │
+           ▼
+[13. Comp Architecture] ─► [14. 5-Stage Pipeline] ─────► [15. RV32I Core] ────────────► [16. RV32IM + CSR/Traps]
+           │
+           ▼
+[17. Run C on RTL] ──────► [18. GPU Architecture] ─────► [19. SIMT/Warp Diverge] ─────► [20. 4-Warp SIMT Core]
+           │
+           ▼
+[21. 256-bit SIMD] ──────► [22. Fixed-Pt/Quantization] ─► [23. Transformer/LLM] ──────► [24. AI MAC/GEMM]
+           │
+           ▼
+[25. Systolic Array] ────► [26. 8x8 NMU Engine] ───────► [27. Bandwidth/Balance] ─────► [28. NoC Mathematics]
+           │
+           ▼
+[29. 5-Port Router] ─────► [30. 10x10 NoC Mesh] ───────► [31. AXI Protocol] ──────────► [32. 512b Scatter DMA]
+           │
+           ▼
+[33. DAG Scheduler] ─────► [34. Paged KV Cache] ───────► [35. Custom RISC-V ISA] ─────► [36. Runtime/MMIO]
+           │
+           ▼
+[37. SVA Assertions] ────► [38. IMC 100% Coverage] ────► [39. JasperGold Formal] ─────► [40. Golden Ref Models]
+           │
+           ▼
+[41. Fault Testing] ─────► [42. Lint / CDC / RDC] ─────► [43. Genus Synthesis] ───────► [44. SDC / Tempus STA]
+           │
+           ▼
+[45. GLS with SDF] ──────► [46. Voltus Power/IR] ──────► [47. Modus DFT / ATPG] ──────► [48. Innovus P&R]
+           │
+           ▼
+[49. Quantus / Pegasus] ─► [50. GDSII Tapeout Signoff]
+```
 
 ---
 
-### Level 21 to Level 30: Verification, Synthesis & ASIC Physical Design (GDSII)
-- **Level 21: Comprehensive Verification & Coverage Signoff**:
-  - SVA Concurrent Assertions for valid/ready handshakes, FIFO overflow/underflow, and command completion tags.
-  - Cadence Incisive (IMC) Coverage Closure: Block $\ge 100\%^*$, Expression $\ge 100\%^*$, Toggle $\ge 100\%^*$, FSM State $100\%$, FSM Transition $100\%$.
-- **Level 22 & 23: Formal Equivalence (LEC) & Lint/CDC/RDC**:
-  - Static linting rules (SpyGlass/Hal), Clock Domain Crossing (CDC) verification, and Reset Synchronizers.
-- **Level 24 & 25: Logic Synthesis (Cadence Genus / Synopsys DC)**:
-  - Mapping to 90nm standard cell libraries, SDC timing constraints ($T_{\text{clk}} = 1.0\text{ ns}$ @ 1.0 GHz, $35\text{ ps}$ clock uncertainty, max transition $< 40\text{ ps}$).
-- **Level 26 & 27: Gate-Level Simulation (GLS) & Power Analysis**:
-  - SDF timing back-annotation, Dynamic & Static IR-Drop analysis.
-- **Level 28 to 30: Physical Design (Cadence Innovus) & GDSII Signoff**:
-  - Floorplanning 10x10 symmetric grid, Power Distribution Network (PDN on M8/M9), Multi-Level H-Tree CTS, Detailed Routing (M1..M7), DRC/LVS clean verification, and GDSII stream-out.
+### Detailed Stage Breakdown (Level 01 to 50)
+
+#### Phase A: Foundations & Software-to-Hardware Bridge (Levels 01–12)
+1. **Level 01: Linux + Git + Tcl + EDA Environment**: Terminal navigation, shell scripting, Git version control, Tcl automation, and standard EDA workspace structure (`rtl/`, `tb/`, `scripts/`, `work/`, `reports/`).
+2. **Level 02: Number Systems & Digital Logic**: Binary, Hexadecimal, 2's complement signed representation, fixed-point Q-format, Boolean algebra, De Morgan's laws.
+3. **Level 03: Combinational Logic & Arithmetic**: Multiplexers, decoders, priority encoders, ripple-carry/carry-lookahead adders, subtractors, and barrel shifters.
+4. **Level 04: Sequential Logic & FSMs**: Latches vs D-Flip-Flops, synchronous registers, shift registers, Moore/Mealy FSMs with illegal-state recovery.
+5. **Level 05: Verilog HDL Fundamentals**: Modules, ports, wires, regs, continuous assignments, procedural blocks (`always @(posedge clk)`), blocking vs non-blocking assignments.
+6. **Level 06: Simulation & Testbench Architecture (Cadence Xcelium)**: Testbench clock/reset generation, stimulus application, `$display`, `$monitor`, waveform dumping (`.vcd`/`.shm`), delta cycles.
+7. **Level 07: SystemVerilog IEEE 1800-2017**: `logic`, `always_comb`, `always_ff`, `always_latch`, `typedef`, `enum`, packed `struct`, `union`, packages, interfaces, generate loops.
+8. **Level 08: Synthesizable RTL Methodology**: Translating code into standard cells (logic gates, multiplexers, flip-flops); eliminating inferred latches and multi-driver nets.
+9. **Level 09: RTL Width, Signedness & Arithmetic Rules**: Signed vs unsigned propagation, zero/sign extension, truncation, multiplier bit-width growth ($N\text{b} \times M\text{b} \rightarrow (N+M)\text{b}$), and accumulator sizing.
+10. **Level 10: Memories, FIFOs & Handshake Protocols**: 1R/1W synchronous SRAM macros, multi-banked scratchpads, valid/ready handshakes, credit-based flow control, synchronous command FIFOs.
+11. **Level 11: C Programming for Hardware & Processor Design**: Pointers, bitwise operations, structs, memory layouts, memory-mapped I/O (MMIO), and compilation flow ($C \rightarrow \text{Assembly} \rightarrow \text{Binary}$).
+12. **Level 12: RISC-V Assembly & Machine Instruction Encoding**: Instruction decoding (R-type, I-type, S-type, B-type, U-type, J-type), register conventions (`x0`..`x31`), and instruction encodings.
 
 ---
 
-## 3. Practical 12-Milestone Execution Schedule
+#### Phase B: RISC-V Core & SIMT GPU Datapath (Levels 13–20)
+13. **Level 13: Computer Architecture Fundamentals**: Datapath and control partitioning, register files, instruction memory, data memory, ALU, branch comparators, CSRs, and memory-mapped I/O.
+14. **Level 14: 5-Stage Pipelining & Hazard Resolution**: `IF` $\rightarrow$ `ID` $\rightarrow$ `EX` $\rightarrow$ `MEM` $\rightarrow$ `WB`, RAW data hazards, load-use stalls, ALU-to-ALU forwarding, branch flushes, and multicycle unit bubbles.
+15. **Level 15: RISC-V RV32I Base Integer Core**: Complete 32-bit scalar pipelined processor supporting all 37 base integer instructions.
+16. **Level 16: RV32IM Core + CSRs / Exceptions / Traps**: Multi-cycle integer hardware multiplier and divider (`MUL`, `MULH`, `DIV`, `REM`), CSR registers (`mstatus`, `mie`, `mtvec`, `mcause`, `mepc`), illegal instruction traps, and misaligned access handlers.
+17. **Level 17: Build & Run Compiled C Programs on RTL**: Compiling bare-metal C programs with RISC-V GCC, generating memory initialization files (`.hex`), and simulating execution on RTL.
+18. **Level 18: GPU Architecture Principles**: SIMD vs SIMT, threads, warps, lanes, occupancy, warp scheduling, and latency hiding.
+19. **Level 19: SIMT Warps, Active Masks & Branch Divergence**: 4 warp contexts per core, 32-lane logical warp width, 32-bit active lane masks, and 8-entry branch reconvergence stacks.
+20. **Level 20: 4-Warp RISC-V SIMT Core (`riscv_ai_tile.sv`)**: Integrated SIMT tile with round-robin warp scheduler, decoupled operand collection, and stall reason tracking (`WAIT_MEM`, `WAIT_NMU`, `WAIT_BARRIER`, `STALL_DIVERGE`).
 
-| Milestone | Target Hardware Module | Key Deliverables & Evidence | Verification Gate |
+---
+
+#### Phase C: AI Acceleration, 256-Bit SIMD & Systolic Array (Levels 21–27)
+21. **Level 21: 256-Bit Packed SIMD Unit**: 256-bit wide execution engine supporting INT8 (32 ops), INT4 (64 ops), FP16 (16 ops), and INT32 (8 ops).
+22. **Level 22: Fixed-Point, Q-Format & Numerical Accuracy**: Quantization, de-quantization, clamping, saturation arithmetic, rounding modes, and INT8 $\times$ INT8 $\rightarrow$ INT32 accumulation.
+23. **Level 23: Transformer & LLM Inference Fundamentals**: Self-attention mechanism, Scaled Dot-Product, Softmax, LayerNorm, RMSNorm, GELU, KV Cache paging, prefill vs decode phases.
+24. **Level 24: AI MACs, GEMM & Systolic Array Dataflows**: Matrix multiplication algorithms, data reuse strategies, Weight-Stationary vs Output-Stationary vs Activation-Stationary dataflows.
+25. **Level 25: 8x8 Systolic Processing Element Array**: 64 PEs arranged in a 2D weight-stationary grid; signed INT8 multiplication with signed 32-bit vertical partial sum accumulation.
+26. **Level 26: 8x8 Neural Matrix Unit (NMU) Integration**: Cluster-level NMU with 8-entry command FIFO, input activation skew registers, output de-skew logic, and activation unit (ReLU/GELU/Sigmoid/LayerNorm).
+27. **Level 27: Memory Hierarchy, Bandwidth Balance & Arithmetic Intensity**:
+    $$\text{Arithmetic Intensity} = \frac{\text{Total Operations (FLOPs/OPs)}}{\text{Total Memory Accesses (Bytes)}}$$
+    Calculating required scratchpad bandwidth, NoC bisection bandwidth, and external DRAM throughput to sustain 1.28 TOPS peak compute.
+
+---
+
+#### Phase D: Network-on-Chip, Memory & Agentic Engine (Levels 28–36)
+28. **Level 28: NoC Mathematics & Performance Analysis**: Hop count, packet latency, offered load, injection rate, bisection bandwidth, buffer sizing, and head-of-line blocking.
+29. **Level 29: 5-Port NoC Router with Virtual Channels**: 5 input/output ports (North, South, East, West, Local), Dimension-Order XY routing, 3 Virtual Channels (`VC0: Request`, `VC1: Response`, `VC2: Agent/Control`), and round-robin switch allocation.
+30. **Level 30: 10x10 2D-Mesh NoC Grid**: 100 routers connecting 10 clusters (100 cores), 4MB distributed global buffer, DMA controller, and agentic coprocessor.
+31. **Level 31: AXI Protocol Fundamentals**: AXI5/AXI4 5-channel handshaking (`AW`, `W`, `B`, `AR`, `R`), burst transfers (INCR/WRAP), ID ordering, and backpressure flow control.
+32. **Level 32: 512-Bit Scatter-Gather DMA Controller**: 512-bit wide AXI master datapath, 512-bit aligned descriptor parsing, 2D strided block transfers, and interrupt generation.
+33. **Level 33: Hardware Agentic DAG Task Scheduler**: 64 task entries with 64-bit prerequisite bitmasks, 1-cycle readiness evaluation, and 8-level priority task dispatch over NoC.
+34. **Level 34: Paged KV-Cache Manager**: 1024 physical page allocation table, reference-counting engine, zero-copy prefix sharing, and hardware `ALLOC`/`FREE`/`LOOKUP` commands.
+35. **Level 35: Custom RISC-V ISA Extension Design**: Opcode assignment (`CUSTOM-0`/`CUSTOM-1`), instruction decode logic, and execution pipelines for `TENS_CFG`, `TENS_LAUNCH`, `TENS_WAIT`, `BARRIER`, `AI_FENCE`, and `AGENT_DAG_INSERT`.
+36. **Level 36: Software Runtime & MMIO Driver Layer**: C driver abstractions, custom intrinsic macros (`__builtin_riscv_ai_*`), memory-mapped CSR interfaces, and user-space task dispatchers.
+
+---
+
+#### Phase E: Verification, Synthesis & Cadence ASIC Implementation Flow (Levels 37–50)
+37. **Level 37: SystemVerilog Assertions (SVA) & Property-Based Design**: Concurrent assertions for FIFO overflow/underflow, handshake protocol validity, mutual exclusion, and request-to-grant latency bounds.
+38. **Level 38: Code & Functional Coverage Closure (Cadence IMC / Verisium)**: Statement, branch, condition, toggle, FSM state/transition, and multi-dimensional cross coverage signoff (100% target).
+39. **Level 39: Formal Verification (Cadence JasperGold / Conformal)**: Mathematical proof of safety properties, liveness guarantees, deadlock freedom, and equivalence checking.
+40. **Level 40: Independent Behavioral Reference Models**: Python/C++ golden reference models for ALU, 256-bit SIMD, 8x8 GEMM, NoC packet routing, DAG task scheduler, and KV-cache table.
+41. **Level 41: Fault Injection & Mutation Testing**: Injecting corrupt packets, dropped credits, invalid opcodes, and memory parity errors to verify hardware fault recovery.
+42. **Level 42: Static Lint, CDC & RDC Analysis**: SpyGlass/Hal static lint checks, clock domain crossing synchronizer verification, and reset domain crossing glitch filtering.
+43. **Level 43: Logic Synthesis & Technology Mapping (Cadence Genus)**: Mapping RTL to 90nm standard cell libraries, gate optimization, critical path restructuring, and QoR reporting.
+44. **Level 44: SDC Timing Constraints & STA (Cadence Tempus)**: `create_clock`, `set_clock_uncertainty`, `set_input_delay`, `set_output_delay`, multi-corner multi-mode (MMMC) setup/hold analysis at 1.0 GHz ($T_{\text{clk}} = 1.0\text{ ns}$).
+45. **Level 45: Gate-Level Simulation (GLS) with SDF Back-Annotation**: Simulating synthesized gate-level netlist with Standard Delay Format (SDF) timing across min/typ/max process corners.
+46. **Level 46: Power Integrity & IR-Drop Analysis (Cadence Voltus)**: Dynamic switching power, leakage power, static/dynamic IR-drop, and electromigration (EM) limits.
+47. **Level 47: Design for Testability (DFT) & ATPG (Cadence Modus)**: Scan chain insertion, scan compression, stuck-at and transition fault ATPG generation, and test pattern validation ($>99\%$ test coverage).
+48. **Level 48: Physical Design Implementation (Cadence Innovus)**: Floorplanning (10x10 symmetric grid), Power Distribution Network (PDN on M8/M9), standard cell placement, H-Tree Clock Tree Synthesis (CTS), and Detailed Routing (M1..M7).
+49. **Level 49: 3D Parasitic Extraction (Cadence Quantus) & Physical Verification (Pegasus / PVS)**: SPEF generation, DRC (Design Rule Checking), LVS (Layout vs Schematic), and Antenna rule verification.
+50. **Level 50: Tapeout Database Generation & GDSII Sign-Off**: Final stream-out, GDSII database generation, multi-corner STA timing closure, and tapeout package delivery.
+
+---
+
+## 3. Cadence Platform Tool & Evidence Matrix
+
+| Project Milestone / Subsystem | Key Concepts Learned | Cadence Tool Invocation | Required Engineering Evidence & Artifacts |
 |---|---|---|---|
-| **M1** | Digital Primitives & ALU | Basic gates, 32-bit Adder, Multiplexers, FSMs, Counters | Gate 0 |
-| **M2** | Verilog Testbenches | Clock/Reset stimulus, self-checking scoreboards, waveform analysis | Gate 0 |
-| **M3** | SystemVerilog Packages | `riscv_ai_gpu_pkg.sv`, 160-bit flit types, 512-bit DMA descriptor, custom opcodes | Gate 0 |
-| **M4** | Memory Macros & FIFO | 1R/1W SRAM banks, 8-entry NMU FIFO, register files | Gate 0 |
-| **M5** | 5-Stage RV32I Core | Fetch, Decode, Execute, Memory, Writeback pipeline with forwarding | Gate 1 |
-| **M6** | RV32IM Scalar Core | Full hardware integer Multiplier/Divider unit integration | Gate 1 |
-| **M7** | 4-Warp SIMT Tile (`riscv_ai_tile.sv`) | 4 Warps, 32-bit active mask, 8-entry reconvergence stack, warp scheduler | Gate 1 |
-| **M8** | 256-Bit SIMD + 8x8 NMU | 256-bit packed SIMD (INT8/4/FP16/32) + 8x8 weight-stationary systolic PE array | Gate 2 |
-| **M9** | 1 Cluster Subsystem (`ai_gpu_cluster.sv`) | 10 Cores + 64KB Banked SPAD + Barrier Synchronizer + NMU Arbiter | Gate 3 |
-| **M10** | NoC Router + Mesh + DMA | 5-Port Router (160b flit, 3 VCs), 10x10 Mesh, 4MB Global Buffer, 512-bit DMA | Gates 4, 5, 6 |
-| **M11** | Agentic Coprocessor + Top SoC | 64-Node DAG Scheduler + 1024-Block KV Manager + 100-Core Full Chip SoC | Gates 7, 8 |
-| **M12** | Coverage Signoff $\rightarrow$ GDSII | IMC Coverage Closure (100%) $\rightarrow$ Genus Synthesis $\rightarrow$ Innovus Place & Route $\rightarrow$ GDSII | Gates 9 to 16 |
+| **M1: Digital Primitives & ALU** | Gates, 32-bit Adder, MUX, FSM | `xrun -64bit -sv` | Elaboration log, self-checking TB pass |
+| **M2: Verilog/SystemVerilog Simulation** | Clock/Reset, Stimulus, Waveforms | `xrun -gui -access +rwc` | Waveform database (`.shm`), simulation log |
+| **M3: Memory Macros & FIFOs** | 1R/1W SRAMs, Command FIFOs, SVA | `xrun -assert` | SVA pass log, zero overflow/underflow assertions |
+| **M4: 5-Stage RV32I Core** | Pipeline stages, forwarding, stalls | `xrun` + `genus` | 37/37 instruction test pass, initial area report |
+| **M5: RV32IM Scalar Core** | Multicycle MUL/DIV, CSRs, Traps | `xrun` (C binary execution) | Bare-metal C program output match, zero traps |
+| **M6: 4-Warp SIMT Tile (`riscv_ai_tile.sv`)** | 4 Warps, 32-lane SIMT, Reconvergence | `xrun` (divergence suite) | Branch divergence/reconvergence trace, warp stall stats |
+| **M7: 256-bit SIMD Unit** | INT8/4, FP16, INT32 vector ALUs | `xrun` + `genus` | Vector SIMD directed sweep pass, gate-level netlist |
+| **M8: 8x8 Systolic NMU Engine** | Weight-stationary 64-PE array, GEMM | `xrun` + Python golden model | Matrix multiplication bit-exact match, 1.28 TOPS peak |
+| **M9: 1 Cluster Subsystem** | 10 Cores, 64KB SPAD, Barrier Sync | `xrun` (cluster test suite) | Multi-core barrier release trace, SPAD arbitration log |
+| **M10: 10x10 NoC Mesh + DMA + Memory** | 100 Routers, XY DOR, 512b DMA | `xrun` + `genus` | Zero flit drop, 512-bit DMA burst transfer log |
+| **M11: Agentic Coprocessor + Top SoC** | 64-Task DAG, 1024-Block KV Cache | `xrun -coverage all` + `imc` | 20/20 top full-chip test pass, IMC coverage database |
+| **M12: Verification & ASIC Signoff** | Coverage, Synthesis, STA, P&R, GDSII | `genus` $\rightarrow$ `tempus` $\rightarrow$ `innovus` $\rightarrow$ `voltus` | Synthesized netlist, 1 GHz STA report, clean DRC/LVS, GDSII |
