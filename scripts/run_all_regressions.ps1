@@ -97,6 +97,7 @@ foreach ($TB in $TestList) {
         Write-Host " [PASS] $TB completed successfully" -ForegroundColor Green
         $Passed++
     }
+    Start-Sleep -Milliseconds 250
 }
 
 Write-Host "`n================================================================================" -ForegroundColor Cyan

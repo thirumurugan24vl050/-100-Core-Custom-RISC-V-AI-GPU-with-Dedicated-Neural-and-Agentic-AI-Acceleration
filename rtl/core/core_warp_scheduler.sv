@@ -65,7 +65,7 @@ module core_warp_scheduler import riscv_ai_gpu_pkg::*; (
 
         for (int i = 1; i <= NUM_WARPS; i++) begin
             logic [1:0] candidate_warp;
-            candidate_warp = (last_scheduled_warp + 2'(i)) % 2'(NUM_WARPS);
+            candidate_warp = 2'((int'(last_scheduled_warp) + i) % NUM_WARPS);
             if (warp_ready_mask[candidate_warp] && !selected_fetch_valid) begin
                 selected_fetch_warp  = candidate_warp;
                 selected_fetch_valid = 1'b1;
