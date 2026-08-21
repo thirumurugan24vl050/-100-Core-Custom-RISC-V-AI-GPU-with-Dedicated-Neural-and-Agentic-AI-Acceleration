@@ -6,7 +6,7 @@
 // Standard: IEEE 1800-2017 SystemVerilog
 //=============================================================================
 
-`timescale 1ns / 1ps
+`include "agentic_isa_defs.sv"
 
 package riscv_ai_gpu_pkg;
 

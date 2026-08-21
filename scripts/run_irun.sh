@@ -66,7 +66,7 @@ for item in "${TESTS[@]}"; do
   echo " [CADENCE IRUN] Executing: $TB_NAME"
   echo "--------------------------------------------------------------------------------"
   
-  echo "run; exit" | irun -clean -sv -access +rwc -incdir ./rtl/include $RTL_COMMON $TB_FILE -top $TB_NAME
+  irun -clean -sv -access +rwc -input "$SCRIPT_DIR/sim.tcl" -incdir ./rtl/include $RTL_COMMON $TB_FILE -top $TB_NAME
   
   if [ $? -eq 0 ]; then
     echo " [PASS] $TB_NAME completed successfully under Cadence irun"
