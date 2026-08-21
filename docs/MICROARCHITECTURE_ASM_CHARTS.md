@@ -1,10 +1,11 @@
 # Microarchitecture Specification & Algorithmic State Machine (ASM) Charts
-## 100-Core Custom RISC-V AI GPU (Many-Core Accelerator Prototype)
+## 100-Core Custom RISC-V SIMT AI GPU (Architecture Baseline v1.0)
 
 ---
 
 ## 1. Executive Summary & Control-Datapath Partitioning
-This document provides the formal microarchitectural state diagrams, Algorithmic State Machine (ASM) charts, cycle-accurate timing contracts, and datapath-to-control interfaces for all finite state machines in the 100-Core RISC-V AI GPU.
+
+This document provides formal microarchitectural state diagrams, Algorithmic State Machine (ASM) charts, cycle-accurate timing contracts, and datapath-to-control interfaces for all finite state machines in the 100-Core RISC-V SIMT AI GPU.
 
 ```
 +--------------------------------------------------------------------------------------------------+
@@ -13,14 +14,14 @@ This document provides the formal microarchitectural state diagrams, Algorithmic
 |  +--------------------------------+  +--------------------------------+  +--------------------+  |
 |  |     GLOBAL AGENTIC AI ENGINE   |  |   HIGH-SPEED AXI5 / DMA ENGINE |  |   GLOBAL PLL /     |  |
 |  |  * Dynamic Task DAG Scheduler  |  |  * 512-bit Host Memory Bus     |  |   RESET CONTROLLER |  |
-|  |  * Paged KV-Cache Directory    |  |  * Multi-Channel DMA           |  |  * Synchronous     |  |
-|  |  * Speculative MCTS Tree Unit  |  |  * Scatter-Gather Buffer       |  |    De-assertion    |  |
+|  |  * Paged KV-Cache Directory    |  |  * 512-bit Scatter-Gather Descs|  |  * Synchronous     |  |
+|  |  * Speculative MCTS Tree Unit  |  |  * 64-bit Physical Addressing  |  |    De-assertion    |  |
 |  |  * Priority Token Router       |  +--------------------------------+  +--------------------+  |
 |  +--------------------------------+                                                              |
 |                                                                                                  |
 |  +--------------------------------------------------------------------------------------------+  |
 |  |                     10x10 2D-MESH NETWORK-ON-CHIP (NoC) INTERCONNECT                       |  |
-|  |             (XY Wormhole Routing, Credit-Based Flow Control, 3 Virtual Channels)           |  |
+|  |     (160-bit Flit, 32b Header + 128b Payload, 3 Virtual Channels, Dimension-Order XY)      |  |
 |  +--------------------------------------------------------------------------------------------+  |
 |         |                  |                  |                  |                  |            |
 |  +--------------+  +--------------+  +--------------+  +--------------+  +--------------+        |
@@ -29,23 +30,23 @@ This document provides the formal microarchitectural state diagrams, Algorithmic
 |  | * 10 RV Cores|  | * 10 RV Cores|  | * 10 RV Cores|  | * 10 RV Cores|  | * 10 RV Cores|        |
 |  | * Neural 8x8 |  | * Neural 8x8 |  | * Neural 8x8 |  | * Neural 8x8 |  | * Neural 8x8 |        |
 |  | * GELU/Softmx|  | * GELU/Softmx|  | * GELU/Softmx|  | * GELU/Softmx|  | * GELU/Softmx|        |
-|  | * 64KB SRAM  |  | * 64KB SRAM  |  | * 64KB SRAM  |  | * 64KB SRAM  |  | * 64KB SRAM  |        |
-|  | * Warp Sync  |  | * Warp Sync  |  | * Warp Sync  |  | * Warp Sync  |  | * Warp Sync  |        |
+|  | * 64KB SPAD  |  | * 64KB SPAD  |  | * 64KB SPAD  |  | * 64KB SPAD  |  | * 64KB SPAD  |        |
+|  | * Barrier Gen|  | * Barrier Gen|  | * Barrier Gen|  | * Barrier Gen|  | * Barrier Gen|        |
 |  +--------------+  +--------------+  +--------------+  +--------------+  +--------------+        |
 |                                                                                                  |
 |  +--------------------------------------------------------------------------------------------+  |
-|  |                DISTRIBUTED BANKED L2 CACHE & COHERENT MEMORY DIRECTORY                    |  |
-|  |                          (16 Banks x 256KB = 4MB On-Chip SRAM)                             |  |
+|  |             4MB DISTRIBUTED GLOBAL SRAM / SHARED AI BUFFER (NON-COHERENT V1)               |  |
+|  |                     (16 Banks x 256KB = 4MB, Explicit Software Sync)                       |  |
 |  +--------------------------------------------------------------------------------------------+  |
 +--------------------------------------------------------------------------------------------------+
 ```
 
 ---
 
-## 2. Core Subsystem ASM Charts (Level 1)
+## 2. Core Subsystem ASM Charts (Tile Level)
 
-### 2.1 Core Fetch Unit (`core_fetch_unit.sv`)
-The Fetch Unit manages instruction pointers for 4 concurrent warps with branch redirection and cache line fetch buffering.
+### 2.1 Core Fetch & Warp Issue Unit (`core_fetch_unit.sv`)
+Manages instruction pointers for 4 concurrent warps with branch redirection and zero-bubble switching.
 
 ```
        +---------------------------------------------+
@@ -84,22 +85,10 @@ The Fetch Unit manages instruction pointers for 4 concurrent warps with branch r
 +------------+
 ```
 
-#### State Transition Table
-| Current State | Condition | Next State | Outputs Asserted |
-| :--- | :--- | :--- | :--- |
-| `RESET` | `rst_n == 0` | `RESET` | `icache_req_val = 0`, `pc_out = 0` |
-| `RESET` | `rst_n == 1` | `ARBITRATE` | `icache_req_val = 0` |
-| `ARBITRATE` | `warp_ready[w] == 1` | `ISSUE_REQ` | `icache_req_addr = warp_pc[w]` |
-| `ARBITRATE` | `all_warps_stalled` | `ARBITRATE` | `icache_req_val = 0` |
-| `ISSUE_REQ` | `branch_redirect` | `FLUSH_BRANCH`| `warp_pc[w] = branch_target` |
-| `ISSUE_REQ` | `icache_ready` | `RECEIVE_INSTR` | `icache_req_val = 1` |
-| `RECEIVE_INSTR`| Unconditional | `ARBITRATE` | `instr_valid = 1`, `warp_pc += 4` |
-| `FLUSH_BRANCH` | Unconditional | `ARBITRATE` | `pipeline_flush = 1` |
-
 ---
 
 ### 2.2 Core Warp Scheduler & Scoreboard (`core_warp_scheduler.sv`)
-Manages 4-warp hardware multithreading with single-cycle zero-overhead context switching.
+Tracks 4 architectural warps ($W_0..W_3$) with 7 defined stall states: `RUNNING`, `READY`, `WAIT_MEM`, `WAIT_NMU`, `WAIT_BARRIER`, `WAIT_AGENT`, `STALL_DIVERGE`.
 
 ```
        +---------------------------------------------+
@@ -113,7 +102,7 @@ Manages 4-warp hardware multithreading with single-cycle zero-overhead context s
        +---------------------------------------------+
 +----> |             STATE_EVAL_READINESS            |
 |      |  - Check Scoreboard: RAW / WAW Hazards      |
-|      |  - Check Barrier Stall Flag                 |
+|      |  - Check Barrier Stall & Tensor Stall Flags |
 |      |  - Check Execution Unit Availability        |
 |      +---------------------------------------------+
 |                             |
@@ -139,8 +128,8 @@ Manages 4-warp hardware multithreading with single-cycle zero-overhead context s
 
 ---
 
-### 2.3 Core LSU & L1 Data Cache (`core_lsu_dcache.sv`)
-Handles scalar 32-bit and vector 256-bit memory operations, scratchpad bank routing, and L1 cache line fills.
+### 2.3 Core LSU & Scratchpad / L1 Interface (`core_lsu_dcache.sv`)
+Handles 32-bit scalar and 256-bit SIMD memory operations, scratchpad bank routing, and 64-bit physical address generation.
 
 ```
        +---------------------------------------------+
@@ -153,46 +142,37 @@ Handles scalar 32-bit and vector 256-bit memory operations, scratchpad bank rout
                               v
        +---------------------------------------------+
        |               STATE_ADDR_DECODE             |
-       |  - Check Target Address Range:              |
-       |    * 0x1000_0000..0x1000_FFFF: Scratchpad   |
-       |    * Else: L1 Data Cache                    |
+       |  - Check 64-bit Physical Address Range:     |
+       |    * 0x0000_1000_0000..: Local SPAD (64KB)  |
+       |    * 0x0000_2000_0000..: Global SRAM (4MB)  |
+       |    * 0x0000_8000_0000..: External DRAM (AXI)|
        +---------------------------------------------+
                               |
               +---------------+---------------+
               |                               |
-       [is_scratchpad]                 [is_dcache]
+       [is_scratchpad]                 [is_global_sram]
               v                               v
     +-------------------+           +-------------------+
-    | STATE_SPAD_ACCESS |           | STATE_TAG_LOOKUP  |
-    | - Route to Bank   |           | - Compare Tag     |
-    | - Spad Ack        |           +-------------------+
-    +-------------------+                     |
-              |                   +-----------+-----------+
-              |                   |                       |
-              |             [Tag Match: HIT]      [Tag Mismatch: MISS]
-              |                   v                       v
-              |         +-------------------+   +-------------------+
-              |         | STATE_CACHE_HIT   |   | STATE_L2_REFILL   |
-              |         | - Read/Write Word |   | - Issue L2 Read   |
-              |         | - Complete LSU Op |   | - Refill Line     |
-              |         +-------------------+   | - Update Tag      |
-              |                   |             +-------------------+
-              |                   |                       |
-              +-------------------+-----------------------+
-                                  |
-                                  v
-                        +-------------------+
-                        |  STATE_WRITEBACK  |
-                        | - Assert lsu_done |
-                        | - Write Regfile   |
-                        +-------------------+
+    | STATE_SPAD_ACCESS |           | STATE_NOC_MEM_REQ |
+    | - Route to Bank   |           | - Format 160b flit|
+    | - SPAD Ack        |           | - Inject to NoC   |
+    +-------------------+           +-------------------+
+              |                               |
+              +---------------+---------------+
+                              |
+                              v
+                    +-------------------+
+                    |  STATE_WRITEBACK  |
+                    | - Assert lsu_done |
+                    | - Write Regfile   |
+                    +-------------------+
 ```
 
 ---
 
-## 3. Neural Accelerator ASM Charts (Level 2)
+## 3. Neural Matrix Unit (NMU) ASM Charts
 
-### 3.1 8x8 Systolic GEMM Engine (`neural_systolic_engine_8x8.sv`)
+### 3.1 8x8 Weight-Stationary Systolic GEMM Engine (`neural_systolic_engine_8x8.sv`)
 
 ```
        +---------------------------------------------+
@@ -224,8 +204,9 @@ Handles scalar 32-bit and vector 256-bit memory operations, scratchpad bank rout
 |      +---------------------------------------------+
 |      |              STATE_DRAIN_ACCUM              |
 |      |  - Read out 8 columns of 32-bit partial sums|
-|      |  - Stream results to Scratchpad / Vector RF |
+|      |  - Stream results to SPAD / Vector RF       |
 |      |  - Assert engine_done = 1                   |
+|      |  - Broadcast completion tag to release warp |
 |      +---------------------------------------------+
 |                             |
 +-----------------------------+
@@ -233,56 +214,103 @@ Handles scalar 32-bit and vector 256-bit memory operations, scratchpad bank rout
 
 ---
 
-### 3.2 8-Lane Online Softmax Unit (`neural_softmax_unit.sv`)
-Calculates $y_i = \frac{e^{x_i - \max(X)}}{\sum e^{x_j - \max(X)}}$ in a streaming 5-stage pipeline.
+## 4. Interconnect & Memory ASM Charts
+
+### 4.1 5-Port Virtual Channel NoC Router (`noc_router_5port.sv`)
 
 ```
        +---------------------------------------------+
-       |                 STATE_IDLE                  |
-       |  - Wait for softmax_req_val                 |
-       +---------------------------------------------+
-                              |
-                              | [req_val == 1]
-                              v
-       +---------------------------------------------+
-       |              STATE_PASS1_FIND_MAX           |
-       |  - Compare 8 input lanes via reduction tree |
-       |  - Register maximum value: X_max            |
+       |              STATE_INGRESS_RX               |
+       |  - Latch 160b flits from 5 input ports      |
+       |  - Demux into VC0 (Req), VC1 (Resp), VC2(Ctl)|
        +---------------------------------------------+
                               |
                               v
        +---------------------------------------------+
-       |             STATE_PASS2_EXP_SUM             |
-       |  - Shift inputs: diff[i] = x[i] - X_max     |
-       |  - Approximate exponent: exp[i] = 2^(diff/ln2)
-       |  - Compute running sum: Sum_exp = sum(exp[i])
+       |             STATE_ROUTE_COMPUTE             |
+       |  - Dimension-Order XY Routing:              |
+       |    dx = dest_x - current_x                  |
+       |    dy = dest_y - current_y                  |
+       |    If (dx > 0) Port = EAST                  |
+       |    If (dx < 0) Port = WEST                  |
+       |    If (dx == 0 && dy > 0) Port = SOUTH      |
+       |    If (dx == 0 && dy < 0) Port = NORTH      |
+       |    If (dx == 0 && dy == 0) Port = LOCAL     |
        +---------------------------------------------+
                               |
                               v
        +---------------------------------------------+
-       |             STATE_PASS3_NORMALIZE           |
-       |  - Fixed-point reciprocal multiplication:   |
-       |    prob[i] = (exp[i] * 65536) / Sum_exp     |
-       |  - Assert softmax_done = 1                  |
+       |             STATE_VC_ARBITRATION            |
+       |  - Priority Round-Robin per output port     |
+       |  - Check downstream out_ready credits       |
        +---------------------------------------------+
                               |
                               v
        +---------------------------------------------+
-       |                 STATE_OUTPUT                |
-       |  - Stream 8 probability lanes to regfile    |
+       |            STATE_CROSSBAR_SWITCH            |
+       |  - Grant inputs connect to requested outputs|
+       |  - Forward 160b flit across physical link   |
+       |  - Decrement input FIFO depth counter       |
        +---------------------------------------------+
 ```
 
 ---
 
-## 4. Agentic AI Coprocessor ASM Charts (Level 3)
-
-### 4.1 64-Node Hardware Task DAG Scheduler (`agent_dag_scheduler.sv`)
+### 4.2 512-Bit Scatter-Gather DMA Controller (`axi_dma_controller.sv`)
 
 ```
        +---------------------------------------------+
        |                 STATE_IDLE                  |
-       |  - Await DAG insert / fire command          |
+       |  - dma_ready = 1                            |
+       |  - Await start_dma from Host CSR            |
+       +---------------------------------------------+
+                              |
+                              | [dma_start == 1]
+                              v
+       +---------------------------------------------+
+       |            STATE_FETCH_DESCRIPTOR           |
+       |  - Read 512-bit descriptor from memory      |
+       |  - Parse src_addr[63:0], dst_addr[63:0], len|
+       +---------------------------------------------+
+                              |
+                              v
+       +---------------------------------------------+
++----> |             STATE_BURST_READ_REQ            |
+|      |  - Issue AXI5 512-bit Read Address (AR)     |
+|      |  - Stream beats into internal Elastic FIFO  |
+|      +---------------------------------------------+
+|                             |
+|                             | [FIFO beat ready]
+|                             v
+|      +---------------------------------------------+
+|      |             STATE_BURST_WRITE_REQ           |
+|      |  - Issue AXI5 512-bit Write Address (AW)    |
+|      |  - Write 512-bit Data Beat into Global SRAM |
+|      |  - Decrement remaining transfer bytes       |
+|      +---------------------------------------------+
+|                             |
+|            +----------------+----------------+
+|            |                                 |
+|    [bytes_remaining > 0]             [bytes_remaining == 0]
+|            |                                 v
++------------+                       +-------------------+
+                                     |  STATE_COMPLETION |
+                                     | - Assert dma_done |
+                                     | - Check next_desc |
+                                     | - Trigger Host IRQ|
+                                     +-------------------+
+```
+
+---
+
+## 5. Agentic AI Coprocessor ASM Charts
+
+### 5.1 64-Node Hardware Task DAG Scheduler (`agent_dag_scheduler.sv`)
+
+```
+       +---------------------------------------------+
+       |                 STATE_IDLE                  |
+       |  - Await DAG insert / poll command          |
        +---------------------------------------------+
                               |
               +---------------+---------------+
@@ -300,7 +328,7 @@ Calculates $y_i = \frac{e^{x_i - \max(X)}}{\sum e^{x_j - \max(X)}}$ in a streami
               |                     +-------------------+
               |                     | STATE_PRIO_SELECT |
               |                     | - 8-Level Priority|
-              |                     |   Encoder chooses |
+              |                     |   Encoder selects |
               |                     |   highest task_id |
               |                     +-------------------+
               |                               |
@@ -312,7 +340,7 @@ Calculates $y_i = \frac{e^{x_i - \max(X)}}{\sum e^{x_j - \max(X)}}$ in a streami
               |             | STATE_DISPATCH|   |  STATE_IDLE   |
               |             | - Output ID   |   +---------------+
               |             | - running = 1 |
-              |             | - dispatch=1  |
+              |             | - dispatch = 1|
               |             +---------------+
               |                     |
               +---------------------+
@@ -320,7 +348,7 @@ Calculates $y_i = \frac{e^{x_i - \max(X)}}{\sum e^{x_j - \max(X)}}$ in a streami
 
 ---
 
-### 4.2 1024-Page Paged KV-Cache Manager (`paged_kv_cache_mgr.sv`)
+### 5.2 1024-Page Paged KV-Cache Manager (`paged_kv_cache_mgr.sv`)
 
 ```
        +---------------------------------------------+
@@ -354,93 +382,4 @@ Calculates $y_i = \frac{e^{x_i - \max(X)}}{\sum e^{x_j - \max(X)}}$ in a streami
                         +-----------+
                         |STATE_DONE |
                         +-----------+
-```
-
----
-
-## 5. Interconnect & Memory Subsystem ASM Charts
-
-### 5.1 5-Port Virtual Channel NoC Router (`noc_router_5port.sv`)
-
-```
-       +---------------------------------------------+
-       |              STATE_INGRESS_RX               |
-       |  - Latch flits from 5 input ports into FIFOs|
-       |  - Check FIFO credit flow-control counters  |
-       +---------------------------------------------+
-                              |
-                              v
-       +---------------------------------------------+
-       |             STATE_ROUTE_COMPUTE             |
-       |  - For each non-empty FIFO head:            |
-       |    dx = dest_x - current_x                  |
-       |    dy = dest_y - current_y                  |
-       |    If (dx > 0) Port = EAST                  |
-       |    If (dx < 0) Port = WEST                  |
-       |    If (dx == 0 && dy > 0) Port = SOUTH      |
-       |    If (dx == 0 && dy < 0) Port = NORTH      |
-       |    If (dx == 0 && dy == 0) Port = LOCAL     |
-       +---------------------------------------------+
-                              |
-                              v
-       +---------------------------------------------+
-       |             STATE_VC_ARBITRATION            |
-       |  - Build 5x5 Request Matrix                 |
-       |  - Priority Round-Robin per output port     |
-       |  - Check downstream out_ready credits       |
-       +---------------------------------------------+
-                              |
-                              v
-       +---------------------------------------------+
-       |            STATE_CROSSBAR_SWITCH            |
-       |  - Grant inputs connect to requested outputs|
-       |  - Forward flit payload across links        |
-       |  - Decrement FIFO depth counter             |
-       +---------------------------------------------+
-```
-
----
-
-### 5.2 Streaming DMA Master Controller (`axi_dma_controller.sv`)
-
-```
-       +---------------------------------------------+
-       |                 STATE_IDLE                  |
-       |  - dma_ready = 1                            |
-       |  - Await start_dma command from Host CSR    |
-       +---------------------------------------------+
-                              |
-                              | [dma_start == 1]
-                              v
-       +---------------------------------------------+
-       |            STATE_FETCH_DESCRIPTOR           |
-       |  - Read Source Address, Dest Address, Length|
-       |  - Compute total 512-bit burst beats count  |
-       +---------------------------------------------+
-                              |
-                              v
-       +---------------------------------------------+
-+----> |             STATE_BURST_READ_REQ            |
-|      |  - Issue AXI5 512-bit Read Address (AR)     |
-|      |  - Stream beats into internal Elastic FIFO  |
-|      +---------------------------------------------+
-|                             |
-|                             | [FIFO beat ready]
-|                             v
-|      +---------------------------------------------+
-|      |             STATE_BURST_WRITE_REQ           |
-|      |  - Issue AXI5 512-bit Write Address (AW)    |
-|      |  - Write 512-bit Data Beat into L2 Bank     |
-|      |  - Decrement remaining transfer bytes       |
-|      +---------------------------------------------+
-|                             |
-|            +----------------+----------------+
-|            |                                 |
-|    [bytes_remaining > 0]             [bytes_remaining == 0]
-|            |                                 v
-+------------+                       +-------------------+
-                                     |  STATE_COMPLETION |
-                                     | - Assert dma_done |
-                                     | - Trigger Host IRQ|
-                                     +-------------------+
 ```
