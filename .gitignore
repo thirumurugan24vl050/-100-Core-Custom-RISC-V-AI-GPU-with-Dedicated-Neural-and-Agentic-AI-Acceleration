@@ -1,0 +1,20 @@
+# EDA and Simulator Temporary Files
+xsim.dir/
+webtalk/
+.Xil/
+*.jou
+*.log
+*.pb
+*.wdb
+*.vcd
+*.rlx
+*.sdb
+*.snap
+*.exe
+*.dll
+
+# IDE and OS
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
