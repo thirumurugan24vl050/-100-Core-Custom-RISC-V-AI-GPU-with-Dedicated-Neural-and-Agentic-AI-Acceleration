@@ -145,8 +145,8 @@ module tb_riscv_ai_core;
         #2 rst_n = 1;
         $display(" [INFO] Reset de-asserted. Core execution started.");
 
-        // Wait for instructions to pipeline through Fetch, Decode, Execute, Writeback
-        #25;
+        // Wait for instructions to pipeline through Fetch, Decode, Execute, Writeback across all 4 warps
+        #100;
 
         //---------------------------------------------------------------------
         // Test 1 (Corner 1): Zero Invariant (x0 must remain 0)
