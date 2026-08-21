@@ -189,7 +189,7 @@ module core_decode_unit import riscv_ai_gpu_pkg::*; (
                 is_vector_op = 1'b1;
                 vec_write_en = 1'b1;
                 vector_dtype = funct7[1:0]; // 00: INT8, 01: FP16, 10: INT32
-                vector_op    = {1'b0, funct3};
+                vector_op    = {funct7[2], funct3};
             end
 
             // 10. Custom Agentic Extension (0x5B)
