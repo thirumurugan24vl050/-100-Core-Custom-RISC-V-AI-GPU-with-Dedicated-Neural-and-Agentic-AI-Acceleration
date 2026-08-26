@@ -8,7 +8,7 @@
 //              - Global Memory Gateway at Node (9,9)
 //              - Hardware Agentic AI Coprocessor at Node (0,0)
 //              - 512-bit Host Scatter-Gather DMA Controller at Node (5,0)
-// Standard: IEEE 1800-2017 SystemVerilog
+// Standard: IEEE 1800-2017 SystemVerilog (Cadence Incisive/Xcelium compliant)
 //=============================================================================
 
 `timescale 1ns / 1ps
@@ -79,6 +79,19 @@ module riscv_ai_gpu_top import riscv_ai_gpu_pkg::*; (
     logic                   dma_mem_resp_val;
     logic [127:0]           dma_mem_resp_rdata;
 
+    // Cluster Tie-Off Arrays for Unused Directional Ports
+    logic      cluster_tieoff_val_in  [3:0];
+    noc_flit_t cluster_tieoff_flit_in [3:0];
+    logic      cluster_tieoff_rdy_in  [3:0];
+
+    always_comb begin
+        for (int d = 0; d < 4; d++) begin
+            cluster_tieoff_val_in[d]  = 1'b0;
+            cluster_tieoff_flit_in[d] = '0;
+            cluster_tieoff_rdy_in[d]  = 1'b1;
+        end
+    end
+
     // 1. Host CSR Decoding & Control
     always_comb begin
         agent_coproc_req_val = host_csr_valid && (host_csr_addr == `CSR_AGENT_GRAPH_STATE);
@@ -119,12 +132,12 @@ module riscv_ai_gpu_top import riscv_ai_gpu_pkg::*; (
                 .cluster_x               (cur_x),
                 .cluster_y               (cur_y),
                 .cluster_id              (4'(i)),
-                .noc_in_valid            ('{default: 1'b0}),
-                .noc_in_flit             ('{default: '0}),
+                .noc_in_valid            (cluster_tieoff_val_in),
+                .noc_in_flit             (cluster_tieoff_flit_in),
                 .noc_in_ready            (),
                 .noc_out_valid           (),
                 .noc_out_flit            (),
-                .noc_out_ready           ('{default: 1'b1}),
+                .noc_out_ready           (cluster_tieoff_rdy_in),
                 .global_agent_task_valid (agent_task_disp_val && (agent_task_disp_cluster == 8'(i))),
                 .global_agent_task_id    (agent_task_disp_id),
                 .global_agent_pc         (agent_task_disp_pc),
