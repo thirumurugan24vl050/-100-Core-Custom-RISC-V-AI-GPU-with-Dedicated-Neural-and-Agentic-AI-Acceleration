@@ -47,6 +47,12 @@ module tb_agent_dag_scheduler;
     initial clk = 0;
     always #1 clk = ~clk;
 
+    // Watchdog
+    initial begin
+        #5000;
+        $finish;
+    end
+
     // Instantiate DUT
     agent_dag_scheduler dut (
         .clk                    (clk),

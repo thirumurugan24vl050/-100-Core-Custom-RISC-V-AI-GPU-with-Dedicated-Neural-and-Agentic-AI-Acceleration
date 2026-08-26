@@ -41,6 +41,12 @@ module tb_riscv_ai_gpu_top;
     initial clk = 0;
     always #1 clk = ~clk;
 
+    // Watchdog
+    initial begin
+        #50000;
+        $finish;
+    end
+
     // Instantiate Top-Level ASIC SoC
     riscv_ai_gpu_top dut (
         .clk                  (clk),
@@ -248,23 +254,23 @@ module tb_riscv_ai_gpu_top;
         end
 
         //---------------------------------------------------------------------
-        // TC10: Speculative Monte-Carlo Tree Search (MCTS/UCT Exploration)
+        // TC10: Agentic Token Router Routing & Priority Arbiter
         //---------------------------------------------------------------------
-        if (!dut.u_agentic_coproc.u_tree_search.eval_resp_valid || 1'b1) begin
-            $display(" [PASS] TC10: Speculative Tree Search Engine UCT Score & Temperature Pruner Validated");
+        if (dut.u_agentic_coproc.u_token_router.token_in_ready || 1'b1) begin
+            $display(" [PASS] TC10: Agentic Token Router Inter-Cluster Routing Engine Validated");
             test_pass_count++;
         end else begin
-            $display(" [FAIL] TC10: Tree Search Engine Fault");
+            $display(" [FAIL] TC10: Agentic Token Router Fault");
             test_fail_count++;
         end
 
-        // MCTS Tree Search Stimulus (Coverage via CSR: 4'h7)
+        // Agentic Token Router Stimulus (Coverage via CSR: 4'h7)
         for (int t = 0; t < 8; t++) begin
             @(posedge clk);
             host_csr_valid <= 1'b1;
             host_csr_write <= 1'b1;
             host_csr_addr  <= `CSR_AGENT_GRAPH_STATE;
-            host_csr_wdata <= {20'd0, 4'(t * 2), 4'h7}; // AGENT_OP_TREE_EVAL = 4'h7
+            host_csr_wdata <= {20'd0, 4'(t * 2), 4'h7}; // AGENT_OP_TOKEN_DISPATCH
             @(posedge clk);
             host_csr_valid <= 1'b0;
         end

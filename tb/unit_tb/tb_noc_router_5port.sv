@@ -32,6 +32,12 @@ module tb_noc_router_5port;
     initial clk = 0;
     always #1 clk = ~clk;
 
+    // Watchdog
+    initial begin
+        #5000;
+        $finish;
+    end
+
     // Instantiate DUT (Node at X=2, Y=2)
     noc_router_5port dut (
         .clk       (clk),
