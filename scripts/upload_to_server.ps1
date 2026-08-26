@@ -1,7 +1,7 @@
 #=============================================================================
 # Project: 100-Core Custom RISC-V AI GPU with Neural & Agentic Acceleration
 # File: upload_to_server.ps1
-# Description: Automated SCP Upload to EDA Server (192.168.1.100: syn_workshop/riscv_ai_gpu)
+# Description: Clean Automated Sync to EDA Server (192.168.1.100: syn_workshop/riscv_ai_gpu)
 #=============================================================================
 
 $PSCP = "C:\Program Files\PuTTY\pscp.exe"
@@ -13,12 +13,12 @@ $SERVER = "192.168.1.100"
 $REMOTE_DIR = "/mnt/rl-home/THIRU/syn_workshop/riscv_ai_gpu"
 
 Write-Host "================================================================================" -ForegroundColor Cyan
-Write-Host " [SERVER SYNC] Uploading Production Codebase to ${USER}@${SERVER}:${REMOTE_DIR}" -ForegroundColor Cyan
+Write-Host " [SERVER SYNC] Purging Obsolete Files & Uploading Clean Codebase to ${USER}@${SERVER}" -ForegroundColor Cyan
 Write-Host "================================================================================" -ForegroundColor Cyan
 
-# 1. Ensure remote directories exist
-Write-Host " [*] Creating remote directory structure..." -ForegroundColor Yellow
-& $PLINK -batch -hostkey $HOSTKEY -ssh -l $USER -pw $PASS $SERVER "mkdir -p $REMOTE_DIR/rtl/include $REMOTE_DIR/rtl/core $REMOTE_DIR/rtl/neural $REMOTE_DIR/rtl/cluster $REMOTE_DIR/rtl/noc $REMOTE_DIR/rtl/memory $REMOTE_DIR/rtl/agentic $REMOTE_DIR/rtl/top $REMOTE_DIR/tb/unit_tb $REMOTE_DIR/tb/cluster_tb $REMOTE_DIR/tb/integration_tb $REMOTE_DIR/scripts $REMOTE_DIR/docs $REMOTE_DIR/work"
+# 1. Clean obsolete files & temp logs on server
+Write-Host " [*] Purging obsolete files and logs from server..." -ForegroundColor Yellow
+& $PLINK -batch -hostkey $HOSTKEY -ssh -l $USER -pw $PASS $SERVER "cd $REMOTE_DIR && rm -rf INCA_libs xcelium.d cov_work *.err *.log *.history cluster_imem_gen.sv riscv_ai_gpu_top.sv tb_riscv_ai_gpu_top.sv rtl/ tb/ && mkdir -p rtl/include rtl/core rtl/neural rtl/cluster rtl/noc rtl/memory rtl/agentic rtl/top tb/unit_tb tb/integration_tb scripts docs work"
 
 # 2. Upload RTL directory
 Write-Host " [*] Uploading rtl/ subsystem..." -ForegroundColor Yellow
@@ -37,10 +37,10 @@ Write-Host " [*] Uploading docs/ and README.md..." -ForegroundColor Yellow
 & $PSCP -batch -hostkey $HOSTKEY -pw $PASS -r docs/* "${USER}@${SERVER}:${REMOTE_DIR}/docs/"
 & $PSCP -batch -hostkey $HOSTKEY -pw $PASS README.md "${USER}@${SERVER}:${REMOTE_DIR}/"
 
-# 6. Verify remote files on server
-Write-Host " [*] Verifying uploaded files on server..." -ForegroundColor Yellow
-& $PLINK -batch -hostkey $HOSTKEY -ssh -l $USER -pw $PASS $SERVER "cd $REMOTE_DIR && ls -la && ls -la rtl/ && ls -la scripts/"
+# 6. Set execute permissions and verify on server
+Write-Host " [*] Setting permissions and verifying files on server..." -ForegroundColor Yellow
+& $PLINK -batch -hostkey $HOSTKEY -ssh -l $USER -pw $PASS $SERVER "cd $REMOTE_DIR && chmod +x scripts/*.sh && ls -la && echo '--- RTL Inventory ---' && find rtl/ -type f | sort && echo '--- TB Inventory ---' && find tb/ -type f | sort"
 
 Write-Host "--------------------------------------------------------------------------------" -ForegroundColor Green
-Write-Host " [SUCCESS] Server Upload to ${SERVER}:${REMOTE_DIR} Complete!" -ForegroundColor Green
+Write-Host " [SUCCESS] Server Upload & Clean Synchronization Complete!" -ForegroundColor Green
 Write-Host "================================================================================" -ForegroundColor Green

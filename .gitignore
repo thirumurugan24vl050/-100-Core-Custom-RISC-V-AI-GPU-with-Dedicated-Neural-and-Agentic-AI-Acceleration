@@ -2,6 +2,9 @@
 xsim.dir/
 webtalk/
 .Xil/
+INCA_libs/
+cov_work/
+xcelium.d/
 *.jou
 *.log
 *.pb
@@ -12,6 +15,10 @@ webtalk/
 *.snap
 *.exe
 *.dll
+*.err
+*.history
+*.key
+*.diag
 
 # IDE and OS
 .vscode/
