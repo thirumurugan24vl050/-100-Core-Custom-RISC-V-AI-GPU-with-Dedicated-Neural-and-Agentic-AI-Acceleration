@@ -78,10 +78,10 @@ module core_regfile import riscv_ai_gpu_pkg::*; (
         if (!rst_n) begin
             for (int w = 0; w < NUM_WARPS; w++) begin
                 for (int r = 0; r < NUM_SCALAR_REGS; r++) begin
-                    scalar_regs[w][r] <= {16'h0000, 8'(w * 17), 8'(r * 7 + 1)};
+                    scalar_regs[w][r] <= '0;
                 end
                 for (int v = 0; v < NUM_VECTOR_REGS; v++) begin
-                    vector_regs[w][v] <= {8{16'(v * 11 + 5), 16'(w * 23 + 17)}};
+                    vector_regs[w][v] <= '0;
                 end
             end
         end else begin

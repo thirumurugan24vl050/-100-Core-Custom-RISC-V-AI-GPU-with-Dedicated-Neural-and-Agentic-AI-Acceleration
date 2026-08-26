@@ -59,11 +59,11 @@ An ASIC-oriented, domain-specific many-core AI accelerator combining programmabl
        │                                 │                                 │
        ▼                                 ▼                                 ▼
 ┌───────────────┐              ┌────────────────────┐              ┌────────────────┐
-│ Agent Engine  │              │ Global Memory      │              │ Host / DMA     │
-│               │              │                    │              │                │
-│ DAG Scheduler │              │ 4MB Global Buffer  │              │ 512-bit AXI    │
-│ KV Manager    │              │ 16 Banks           │              │ DMA Master     │
-│ Token Router  │              │ Memory Gateway     │              │ SG Descriptors │
+│ Agent Engine  │              │ External Memory    │              │ Host / DMA     │
+│               │              │ Interface          │              │                │
+│ DAG Scheduler │              │ 512-bit AXI Bus    │              │ 512-bit AXI    │
+│ KV Manager    │              │ Memory Gateway     │              │ DMA Master     │
+│ Token Router  │              │ Off-Chip DRAM / Bus│              │ SG Descriptors │
 └───────┬───────┘              └─────────┬──────────┘              └───────┬────────┘
         │                                │                                 │
    Gateway (0,0)                    Gateway (9,9)                     Gateway (5,0)
@@ -268,17 +268,20 @@ typedef struct packed {
 ### 8.2 Formal Coverage Targets
 ```text
 ================================================================================
- [CADENCE INCISIVE / IMC COVERAGE SIGNOFF TARGETS]
+ [CADENCE INCISIVE / IMC COVERAGE SIGNOFF TARGETS (PRODUCTION V1)]
 ================================================================================
  Metric                             | Target Sign-Off Criterion
 ------------------------------------+-------------------------------------------
- Block Coverage                     | >= 100%* (with documented review of tie-offs)
- Expression Coverage                | >= 100%*
- Toggle Coverage                    | >= 100%*
+ Overall Verification Coverage      | 100.0%
+ Block Coverage                     | 100.0% (all production blocks reached)
+ Statement / Code Coverage          | 100.0% (all executable lines executed)
+ Expression / Condition Coverage    | 100.0% (all decision outcomes evaluated)
+ Toggle Coverage                    | 100.0% (0->1 and 1->0 transitions on all nets)
  FSM State Coverage                 | 100.0%
  FSM Transition Coverage            | 100.0%
- Assertion Coverage                 | 100.0% applicable SVA properties
  Functional Coverage                | 100.0% planned covergroups and crosses
+ Applicable SVA Coverage            | 100.0% passed with 0 violations
+ Unresolved Coverage Holes          | 0 (all holes closed or formally justified)
 ================================================================================
 ```
 
@@ -288,12 +291,14 @@ typedef struct packed {
 
 | Architectural Claim | Evidence Status | Basis of Evaluation |
 |---|---|---|
-| 100-Core SIMT Architecture | `DERIVED` | 10 clusters x 10 cores, core_id = y*10+x |
-| 8x8 Systolic NMU Logic | `VERIFIED` | Verified against mathematical matrix multiplication golden model |
-| Theoretical Peak 1.28 TOPS | `DERIVED` | 10 clusters x 64 MACs/cycle x 2 ops/MAC x 1.0 GHz |
-| Target 1.0 GHz Frequency | `ASSUMED` | Target synthesis constraint in SDC |
-| NoC Deadlock Freedom | `UNVERIFIED` | Strict VC separation under XY DOR; formal CDG analysis planned |
-| Full-Chip Regression (84/84 Tests) | `VERIFIED` | Executed simulator logs in Cadence Incisive / Vivado XSim |
-| Full-Chip Code & Functional Coverage | `UNVERIFIED` | Measured per-gate independently toward signoff targets |
-| Post-Synthesis Timing & Power | `UNVERIFIED` | Awaiting full-chip Genus/Innovus synthesis run on Linux EDA server |
+| 100-Core SIMT Architecture | `DERIVED` | 10 clusters $\times$ 10 cores, `core_id = y*10+x` |
+| 8x8 Systolic NMU Logic | `PLANNED` | 64-PE array verification against mathematical GEMM model (`tb_neural_systolic_engine`) |
+| Theoretical Peak 1.28 TOPS | `DERIVED` | 10 clusters $\times$ 64 MACs/cycle $\times$ 2 ops/MAC $\times$ 1.0 GHz |
+| Target 1.0 GHz Frequency | `ASSUMED` | Target synthesis constraint in SDC; actual frequency from Tempus STA |
+| NoC Deadlock Freedom | `PLANNED` | Strict VC separation under XY DOR; verified in `tb_noc_router_5port` / `tb_noc_mesh_10x10` |
+| Full-Chip Regression (20 Top-Level Tests) | `PLANNED` | Clean V1 suite TC01..TC20 in `tb_riscv_ai_gpu_top` |
+| Cumulative Testsuite (~260 Tests) | `PLANNED` | 13 Verification Environments, progressive multi-phase coverage closure |
+| Full-Chip Code & Functional Coverage | `PLANNED` | Measured via Cadence IMC toward 100% signoff criteria |
+| Post-Synthesis Timing & Power | `PLANNED` | Awaiting full-chip Genus/Innovus synthesis run on Linux EDA server |
 | GDSII Tapeout Readiness | `BLOCKED` | Awaiting physical design routing and foundry DRC/LVS rule decks |
+

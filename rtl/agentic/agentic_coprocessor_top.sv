@@ -1,7 +1,10 @@
 //=============================================================================
 // Project: 100-Core Custom RISC-V AI GPU with Neural & Agentic Acceleration
 // File: agentic_coprocessor_top.sv
-// Description: Top-Level Agentic AI Coprocessor Subsystem.
+// Description: Top-Level Agentic AI Coprocessor Subsystem (Production V1):
+//              - Hardware Agent DAG Task Scheduler (64 concurrent tasks)
+//              - Paged KV-Cache Manager (1024 physical pages, zero-copy prefix sharing)
+//              - Multi-Agent Dynamic Token Router (point-to-point NoC messaging)
 // Standard: IEEE 1800-2017 SystemVerilog
 //=============================================================================
 
@@ -56,13 +59,6 @@ module agentic_coprocessor_top import riscv_ai_gpu_pkg::*; (
     logic                   kv_hit;
     logic                   kv_err;
 
-    // Tree Search wires
-    logic                   tree_req_val;
-    logic                   tree_resp_val;
-    logic [2:0]             tree_best_idx;
-    logic [15:0]            tree_best_score;
-    logic [7:0]             tree_prune_mask;
-
     // Token Router wires
     logic                   token_in_val;
     logic                   token_in_rdy;
@@ -76,7 +72,6 @@ module agentic_coprocessor_top import riscv_ai_gpu_pkg::*; (
         kv_req_op    = 2'b00;
         kv_ctx       = coproc_req_param1[5:0];
         kv_vpage     = coproc_req_param2[9:0];
-        tree_req_val = 1'b0;
         token_in_val = 1'b0;
 
         if (coproc_req_valid) begin
@@ -92,9 +87,6 @@ module agentic_coprocessor_top import riscv_ai_gpu_pkg::*; (
                 AGENT_OP_KV_LOOKUP: begin
                     kv_req_val = 1'b1;
                     kv_req_op  = 2'b00;
-                end
-                AGENT_OP_TREE_EVAL: begin
-                    tree_req_val = 1'b1;
                 end
                 AGENT_OP_TOKEN_ROUTE: begin
                     token_in_val = 1'b1;
@@ -113,7 +105,7 @@ module agentic_coprocessor_top import riscv_ai_gpu_pkg::*; (
         .insert_priority        (coproc_req_param1[8:6]),
         .insert_dep_mask        ({32'd0, coproc_req_param2}),
         .insert_cluster_target  (coproc_req_param1[23:16]),
-        .insert_pc_start        (32'h00001000), // Default test agent task entry
+        .insert_pc_start        (32'h00001000), // Default agent task entry PC
         .insert_context_ptr     (coproc_req_param2),
         .insert_task_ready      (),
         .task_complete_valid    (task_complete_sig || token_comp_val),
@@ -144,38 +136,7 @@ module agentic_coprocessor_top import riscv_ai_gpu_pkg::*; (
         .allocated_page_count   ()
     );
 
-    // Default Q and Visit arrays for Tree Search
-    logic [15:0] tree_default_q [7:0];
-    logic [15:0] tree_default_visits [7:0];
-
-    always_comb begin
-        tree_default_q[0] = 16'd200; tree_default_q[1] = 16'd180;
-        tree_default_q[2] = 16'd220; tree_default_q[3] = 16'd150;
-        tree_default_q[4] = 16'd90;  tree_default_q[5] = 16'd110;
-        tree_default_q[6] = 16'd300; tree_default_q[7] = 16'd250;
-
-        tree_default_visits[0] = 16'd10; tree_default_visits[1] = 16'd8;
-        tree_default_visits[2] = 16'd12; tree_default_visits[3] = 16'd5;
-        tree_default_visits[4] = 16'd2;  tree_default_visits[5] = 16'd4;
-        tree_default_visits[6] = 16'd20; tree_default_visits[7] = 16'd15;
-    end
-
-    // 3. Speculative Tree Search Engine Instance
-    agent_tree_search_engine u_tree_search (
-        .clk                    (clk),
-        .rst_n                  (rst_n),
-        .eval_req_valid         (tree_req_val),
-        .temperature_threshold  (coproc_req_param2[15:0]),
-        .branch_q_values        (tree_default_q),
-        .branch_visit_counts    (tree_default_visits),
-        .total_visit_count      (16'd76),
-        .eval_resp_valid        (tree_resp_val),
-        .best_branch_idx        (tree_best_idx),
-        .best_branch_score      (tree_best_score),
-        .valid_branch_mask      (tree_prune_mask)
-    );
-
-    // 4. Multi-Agent Token Router Instance
+    // 3. Multi-Agent Token Router Instance
     agent_token_router u_token_router (
         .clk                    (clk),
         .rst_n                  (rst_n),
@@ -208,9 +169,6 @@ module agentic_coprocessor_top import riscv_ai_gpu_pkg::*; (
         if (kv_resp_val) begin
             coproc_resp_valid = 1'b1;
             coproc_resp_data  = {20'd0, kv_hit, kv_err, kv_resp_ppage};
-        end else if (tree_resp_val) begin
-            coproc_resp_valid = 1'b1;
-            coproc_resp_data  = {8'd0, tree_prune_mask, 5'd0, tree_best_idx, tree_best_score};
         end else if (coproc_req_valid) begin
             coproc_resp_valid = 1'b1;
             coproc_resp_data  = {25'd0, active_dag_tasks};

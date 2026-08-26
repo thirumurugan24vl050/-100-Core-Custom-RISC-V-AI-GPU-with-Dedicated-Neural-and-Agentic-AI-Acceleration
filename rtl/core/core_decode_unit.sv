@@ -1,7 +1,12 @@
 //=============================================================================
 // Project: 100-Core Custom RISC-V AI GPU with Neural & Agentic Acceleration
 // File: core_decode_unit.sv
-// Description: Multi-Format Instruction Decoder for RV32IM + Custom AI/Agentic Extensions.
+// Description: Complete Instruction Decoder for 69 Defined Operations:
+//              - 37 RV32I Base Scalar Instructions
+//              - 8 RV32M Multiply/Divide Instructions
+//              - 6 CUSTOM-0 Tensor/Neural Accelerator Instructions
+//              - 12 CUSTOM-1 SIMD Vector Instructions (funct7[6]=0)
+//              - 6 CUSTOM-1 Agentic/Sync/Fence Instructions (funct7[6]=1)
 // Standard: IEEE 1800-2017 SystemVerilog
 //=============================================================================
 
@@ -12,7 +17,7 @@ module core_decode_unit import riscv_ai_gpu_pkg::*; (
     input  logic [XLEN-1:0]        pc_in,
     input  logic [1:0]             warp_id_in,
 
-    // Decoded Control Signals
+    // Decoded Register and Immediate Fields
     output logic [1:0]             warp_id_out,
     output logic [4:0]             rs1_addr,
     output logic [4:0]             rs2_addr,
@@ -31,13 +36,17 @@ module core_decode_unit import riscv_ai_gpu_pkg::*; (
     output logic                   is_branch,
     output logic                   is_jump,
     output logic                   is_csr,
+    output logic                   is_barrier,
+    output logic                   is_fence,
+    output logic                   is_yield,
 
     // Specific sub-opcodes
-    output logic [3:0]             scalar_alu_op,
+    output logic [4:0]             scalar_alu_op,
     output logic [3:0]             vector_op,
     output logic [1:0]             vector_dtype,
     output logic [3:0]             neural_op,
     output logic [3:0]             agentic_op,
+    output logic [1:0]             fence_scope,
     output logic [2:0]             funct3_out,
     output logic [11:0]            csr_addr,
     output logic                   illegal_instruction
@@ -56,6 +65,7 @@ module core_decode_unit import riscv_ai_gpu_pkg::*; (
     assign warp_id_out = warp_id_in;
     assign funct3_out  = funct3;
     assign csr_addr    = instruction[31:20];
+    assign fence_scope = funct7[1:0];
 
     // Immediate decoding
     always_comb begin
@@ -87,7 +97,10 @@ module core_decode_unit import riscv_ai_gpu_pkg::*; (
         is_branch           = 1'b0;
         is_jump             = 1'b0;
         is_csr              = 1'b0;
-        scalar_alu_op       = 4'h0;
+        is_barrier          = 1'b0;
+        is_fence            = 1'b0;
+        is_yield            = 1'b0;
+        scalar_alu_op       = 5'h00;
         vector_op           = 4'h0;
         vector_dtype        = 2'b00;
         neural_op           = 4'h0;
@@ -95,47 +108,53 @@ module core_decode_unit import riscv_ai_gpu_pkg::*; (
         illegal_instruction = 1'b0;
 
         case (opcode)
-            // 1. OP-IMM (ADDI, SLTI, ANDI, etc.)
+            // 1. OP-IMM (ADDI, SLTI, SLTIU, XORI, ORI, ANDI, SLLI, SRLI, SRAI)
             7'b0010011: begin
                 is_scalar_op = 1'b1;
                 reg_write_en = (rd_addr != 5'd0);
                 case (funct3)
-                    3'b000: scalar_alu_op = 4'h0; // ADDI
-                    3'b010: scalar_alu_op = 4'h3; // SLTI
-                    3'b011: scalar_alu_op = 4'h4; // SLTIU
-                    3'b100: scalar_alu_op = 4'h5; // XORI
-                    3'b110: scalar_alu_op = 4'h8; // ORI
-                    3'b111: scalar_alu_op = 4'h9; // ANDI
-                    3'b001: scalar_alu_op = 4'h2; // SLLI
-                    3'b101: scalar_alu_op = (funct7[5]) ? 4'h7 : 4'h6; // SRAI / SRLI
+                    3'b000: scalar_alu_op = 5'h00; // ADDI
+                    3'b010: scalar_alu_op = 5'h03; // SLTI
+                    3'b011: scalar_alu_op = 5'h04; // SLTIU
+                    3'b100: scalar_alu_op = 5'h05; // XORI
+                    3'b110: scalar_alu_op = 5'h08; // ORI
+                    3'b111: scalar_alu_op = 5'h09; // ANDI
+                    3'b001: scalar_alu_op = 5'h02; // SLLI
+                    3'b101: scalar_alu_op = (funct7[5]) ? 5'h07 : 5'h06; // SRAI / SRLI
                     default: illegal_instruction = 1'b1;
                 endcase
             end
 
-            // 2. OP (ADD, SUB, MUL, DIV, etc.)
+            // 2. OP (ADD, SUB, SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND + 8 RV32M ops)
             7'b0110011: begin
                 is_scalar_op = 1'b1;
                 reg_write_en = (rd_addr != 5'd0);
-                if (funct7 == 7'b0000001) begin // RV32M Extension
+                if (funct7 == 7'b0000001) begin // All 8 RV32M Multiply/Divide Operations
                     case (funct3)
-                        3'b000: scalar_alu_op = 4'hA; // MUL
-                        3'b001: scalar_alu_op = 4'hB; // MULH
-                        3'b100: scalar_alu_op = 4'hC; // DIV
-                        3'b110: scalar_alu_op = 4'hD; // REM
-                        default: scalar_alu_op = 4'hA;
-                    endcase
-                end else begin // Standard Base ALU
-                    case (funct3)
-                        3'b000: scalar_alu_op = (funct7[5]) ? 4'h1 : 4'h0; // SUB / ADD
-                        3'b001: scalar_alu_op = 4'h2; // SLL
-                        3'b010: scalar_alu_op = 4'h3; // SLT
-                        3'b011: scalar_alu_op = 4'h4; // SLTU
-                        3'b100: scalar_alu_op = 4'h5; // XOR
-                        3'b101: scalar_alu_op = (funct7[5]) ? 4'h7 : 4'h6; // SRA / SRL
-                        3'b110: scalar_alu_op = 4'h8; // OR
-                        3'b111: scalar_alu_op = 4'h9; // AND
+                        3'b000: scalar_alu_op = 5'h0A; // MUL
+                        3'b001: scalar_alu_op = 5'h0B; // MULH
+                        3'b010: scalar_alu_op = 5'h0C; // MULHSU
+                        3'b011: scalar_alu_op = 5'h0D; // MULHU
+                        3'b100: scalar_alu_op = 5'h0E; // DIV
+                        3'b101: scalar_alu_op = 5'h0F; // DIVU
+                        3'b110: scalar_alu_op = 5'h10; // REM
+                        3'b111: scalar_alu_op = 5'h11; // REMU
                         default: illegal_instruction = 1'b1;
                     endcase
+                end else if (funct7 == 7'b0000000 || funct7 == 7'b0100000) begin // Standard Base ALU
+                    case (funct3)
+                        3'b000: scalar_alu_op = (funct7[5]) ? 5'h01 : 5'h00; // SUB / ADD
+                        3'b001: scalar_alu_op = 5'h02; // SLL
+                        3'b010: scalar_alu_op = 5'h03; // SLT
+                        3'b011: scalar_alu_op = 5'h04; // SLTU
+                        3'b100: scalar_alu_op = 5'h05; // XOR
+                        3'b101: scalar_alu_op = (funct7[5]) ? 5'h07 : 5'h06; // SRA / SRL
+                        3'b110: scalar_alu_op = 5'h08; // OR
+                        3'b111: scalar_alu_op = 5'h09; // AND
+                        default: illegal_instruction = 1'b1;
+                    endcase
+                end else begin
+                    illegal_instruction = 1'b1;
                 end
             end
 
@@ -143,12 +162,12 @@ module core_decode_unit import riscv_ai_gpu_pkg::*; (
             7'b0110111: begin // LUI
                 is_scalar_op = 1'b1;
                 reg_write_en = (rd_addr != 5'd0);
-                scalar_alu_op = 4'hE; // PASS imm
+                scalar_alu_op = 5'h12; // PASS imm
             end
             7'b0010111: begin // AUIPC
                 is_scalar_op = 1'b1;
                 reg_write_en = (rd_addr != 5'd0);
-                scalar_alu_op = 4'h0; // ADD PC + imm
+                scalar_alu_op = 5'h00; // ADD PC + imm
             end
 
             // 4. Jumps (JAL, JALR)
@@ -157,12 +176,12 @@ module core_decode_unit import riscv_ai_gpu_pkg::*; (
                 reg_write_en = (rd_addr != 5'd0);
             end
 
-            // 5. Branches
+            // 5. Branches (BEQ, BNE, BLT, BGE, BLTU, BGEU)
             7'b1100011: begin
                 is_branch    = 1'b1;
             end
 
-            // 6. Loads & Stores
+            // 6. Loads & Stores (LB, LH, LW, LBU, LHU, SB, SH, SW)
             7'b0000011: begin // LOAD
                 is_load      = 1'b1;
                 reg_write_en = (rd_addr != 5'd0);
@@ -171,32 +190,47 @@ module core_decode_unit import riscv_ai_gpu_pkg::*; (
                 is_store     = 1'b1;
             end
 
-            // 7. CSR / System
+            // 7. CSR / System (CSRRW, CSRRS, CSRRC)
             7'b1110011: begin
                 is_csr       = 1'b1;
                 reg_write_en = (rd_addr != 5'd0);
             end
 
-            // 8. Custom Neural Extension (0x0B)
-            OPCODE_CUSTOM_NEURAL: begin
+            // 8. Custom-0 (0x0B): Neural / Tensor Operations
+            OPCODE_CUSTOM_0: begin
                 is_neural_op = 1'b1;
-                reg_write_en = (rd_addr != 5'd0);
-                neural_op    = {1'b0, funct3};
+                case (funct3)
+                    FUNCT3_TENS_CFG:     neural_op = 4'h0;
+                    FUNCT3_TENS_LAUNCH:  neural_op = 4'h1;
+                    FUNCT3_TENS_WAIT:    neural_op = 4'h2;
+                    FUNCT3_TENS_ACT:     neural_op = 4'h3;
+                    FUNCT3_TENS_SOFTMAX: neural_op = 4'h4;
+                    FUNCT3_TENS_NORM:    neural_op = 4'h5;
+                    default: illegal_instruction = 1'b1;
+                endcase
+                reg_write_en = (rd_addr != 5'd0) && (funct3 == FUNCT3_TENS_WAIT);
             end
 
-            // 9. Custom Vector Extension (0x2B)
-            OPCODE_CUSTOM_VECTOR: begin
-                is_vector_op = 1'b1;
-                vec_write_en = 1'b1;
-                vector_dtype = funct7[1:0]; // 00: INT8, 01: FP16, 10: INT32
-                vector_op    = {funct7[2], funct3};
-            end
-
-            // 10. Custom Agentic Extension (0x5B)
-            OPCODE_CUSTOM_AGENTIC: begin
-                is_agentic_op = 1'b1;
-                reg_write_en  = (rd_addr != 5'd0);
-                agentic_op    = {1'b0, funct3};
+            // 9. Custom-1 (0x2B): SIMD (funct7[6]=0) + Agent/Sync/Fence (funct7[6]=1)
+            OPCODE_CUSTOM_1: begin
+                if (funct7[6] == 1'b0) begin
+                    // Partition A: 256-bit SIMD Vector Operations
+                    is_vector_op = 1'b1;
+                    vec_write_en = 1'b1;
+                    vector_dtype = funct7[2:1]; // 00=INT8, 01=FP16, 10=INT32
+                    vector_op    = {funct7[5], funct3};
+                end else begin
+                    // Partition B: Agentic, Synchronization & Fence Operations
+                    case (funct3)
+                        FUNCT3_WARP_YIELD:   is_yield      = 1'b1;
+                        FUNCT3_BARRIER:      is_barrier    = 1'b1;
+                        FUNCT3_AGENT_DAG:    begin is_agentic_op = 1'b1; agentic_op = 4'h1; end
+                        FUNCT3_AGENT_KV:     begin is_agentic_op = 1'b1; agentic_op = 4'h4; reg_write_en = (rd_addr != 5'd0); end
+                        FUNCT3_AGENT_ROUTER: begin is_agentic_op = 1'b1; agentic_op = 4'h7; end
+                        FUNCT3_AI_FENCE:     is_fence      = 1'b1;
+                        default: illegal_instruction = 1'b1;
+                    endcase
+                end
             end
 
             default: begin

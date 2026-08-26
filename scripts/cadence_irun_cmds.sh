@@ -1,69 +1,53 @@
 #!/bin/bash
 #=============================================================================
-# Cadence Incisive (irun) Master Command Reference
-# Design: 100-Core Custom RISC-V AI GPU with Neural & Agentic Acceleration
+# Cadence Incisive (irun) Master Command Reference & Suite
+# Design: 100-Core Custom RISC-V SIMT AI GPU (Production V1)
 # Location: /mnt/rl-home/THIRU/syn_workshop/riscv_ai_gpu/work
 #=============================================================================
 
-# Source environment
-source ../scripts/setup_cadence_env.sh
+source ../scripts/setup_cadence_env.sh 2>/dev/null || true
 
 echo "================================================================================"
-echo " CADENCE IRUN COMMAND REFERENCE SUITE"
+echo " CADENCE IRUN COMMAND REFERENCE SUITE (13 PRODUCTION V1 ENVIRONMENTS)"
 echo "================================================================================"
 
-#-------------------------------------------------------------------------------
-# [TEST 1] Core Scalar ALU & 256-bit Vector Unit (8 Subsystem Tests)
-#-------------------------------------------------------------------------------
-# Command:
-# irun -sv -gui -access +rwc -coverage all -covdut riscv_ai_core -covworkdir ./cov_work -covtest tb_riscv_ai_core -covoverwrite -incdir ../rtl/include ../rtl/include/riscv_ai_gpu_pkg.sv ../rtl/core/*.sv ../tb/unit_tb/tb_riscv_ai_core.sv -top tb_riscv_ai_core
+# 1. tb_riscv_ai_core
+# irun -sv -64bit -access +rwc -coverage all -covdut riscv_ai_core -covworkdir ./cov_work -covtest tb_riscv_ai_core -covoverwrite -incdir ../rtl/include ../rtl/include/riscv_ai_gpu_pkg.sv ../rtl/core/*.sv ../tb/unit_tb/tb_riscv_ai_core.sv -top tb_riscv_ai_core
 
-#-------------------------------------------------------------------------------
-# [TEST 2] 8x8 INT8/FP16 Neural Systolic GEMM Engine (8 Subsystem Tests)
-#-------------------------------------------------------------------------------
-# Command:
-# irun -sv -gui -access +rwc -coverage all -covdut neural_systolic_engine_8x8 -covworkdir ./cov_work -covtest tb_neural_systolic_engine -covoverwrite -incdir ../rtl/include ../rtl/include/riscv_ai_gpu_pkg.sv ../rtl/neural/*.sv ../tb/unit_tb/tb_neural_systolic_engine.sv -top tb_neural_systolic_engine
+# 2. tb_neural_systolic_engine
+# irun -sv -64bit -access +rwc -coverage all -covdut neural_systolic_engine_8x8 -covworkdir ./cov_work -covtest tb_neural_systolic_engine -covoverwrite -incdir ../rtl/include ../rtl/include/riscv_ai_gpu_pkg.sv ../rtl/neural/systolic_pe.sv ../rtl/neural/neural_systolic_engine_8x8.sv ../tb/unit_tb/tb_neural_systolic_engine.sv -top tb_neural_systolic_engine
 
-#-------------------------------------------------------------------------------
-# [TEST 3] Neural Non-Linear Activation & Softmax LUT Pipeline (8 Tests)
-#-------------------------------------------------------------------------------
-# Command:
-# irun -sv -gui -access +rwc -coverage all -covdut neural_activation_unit -covworkdir ./cov_work -covtest tb_neural_activation -covoverwrite -incdir ../rtl/include ../rtl/include/riscv_ai_gpu_pkg.sv ../rtl/neural/*.sv ../tb/unit_tb/tb_neural_activation.sv -top tb_neural_activation
+# 3. tb_neural_postproc
+# irun -sv -64bit -access +rwc -coverage all -covdut neural_postproc_unit -covworkdir ./cov_work -covtest tb_neural_postproc -covoverwrite -incdir ../rtl/include ../rtl/include/riscv_ai_gpu_pkg.sv ../rtl/neural/neural_postproc_unit.sv ../tb/unit_tb/tb_neural_postproc.sv -top tb_neural_postproc
 
-#-------------------------------------------------------------------------------
-# [TEST 4] Hardware Dynamic Agent DAG Task Scheduler (8 Tests)
-#-------------------------------------------------------------------------------
-# Command:
-# irun -sv -gui -access +rwc -coverage all -covdut agent_dag_scheduler -covworkdir ./cov_work -covtest tb_agent_dag_scheduler -covoverwrite -incdir ../rtl/include ../rtl/include/riscv_ai_gpu_pkg.sv ../rtl/agentic/*.sv ../tb/unit_tb/tb_agent_dag_scheduler.sv -top tb_agent_dag_scheduler
+# 4. tb_neural_softmax
+# irun -sv -64bit -access +rwc -coverage all -covdut neural_softmax_unit -covworkdir ./cov_work -covtest tb_neural_softmax -covoverwrite -incdir ../rtl/include ../rtl/include/riscv_ai_gpu_pkg.sv ../rtl/neural/neural_softmax_unit.sv ../tb/unit_tb/tb_neural_softmax.sv -top tb_neural_softmax
 
-#-------------------------------------------------------------------------------
-# [TEST 5] Paged Attention KV-Cache Physical Page Table & Allocator (8 Tests)
-#-------------------------------------------------------------------------------
-# Command:
-# irun -sv -gui -access +rwc -coverage all -covdut paged_kv_cache_mgr -covworkdir ./cov_work -covtest tb_paged_kv_cache_mgr -covoverwrite -incdir ../rtl/include ../rtl/include/riscv_ai_gpu_pkg.sv ../rtl/agentic/*.sv ../tb/unit_tb/tb_paged_kv_cache_mgr.sv -top tb_paged_kv_cache_mgr
+# 5. tb_cluster_scratchpad
+# irun -sv -64bit -access +rwc -coverage all -covdut cluster_scratchpad_sram -covworkdir ./cov_work -covtest tb_cluster_scratchpad -covoverwrite -incdir ../rtl/include ../rtl/include/riscv_ai_gpu_pkg.sv ../rtl/cluster/cluster_scratchpad_sram.sv ../tb/unit_tb/tb_cluster_scratchpad.sv -top tb_cluster_scratchpad
 
-#-------------------------------------------------------------------------------
-# [TEST 6] Speculative Monte-Carlo Tree Search (MCTS/UCT) Engine (8 Tests)
-#-------------------------------------------------------------------------------
-# Command:
-# irun -sv -gui -access +rwc -coverage all -covdut agent_tree_search_engine -covworkdir ./cov_work -covtest tb_agent_tree_search -covoverwrite -incdir ../rtl/include ../rtl/include/riscv_ai_gpu_pkg.sv ../rtl/agentic/*.sv ../tb/unit_tb/tb_agent_tree_search.sv -top tb_agent_tree_search
+# 6. tb_cluster_barrier
+# irun -sv -64bit -access +rwc -coverage all -covdut cluster_barrier_sync -covworkdir ./cov_work -covtest tb_cluster_barrier -covoverwrite -incdir ../rtl/include ../rtl/include/riscv_ai_gpu_pkg.sv ../rtl/cluster/cluster_barrier_sync.sv ../tb/unit_tb/tb_cluster_barrier.sv -top tb_cluster_barrier
 
-#-------------------------------------------------------------------------------
-# [TEST 7] 5-Port Virtual-Channel XY Dimension-Order NoC Router (8 Tests)
-#-------------------------------------------------------------------------------
-# Command:
-# irun -sv -gui -access +rwc -coverage all -covdut noc_router_5port -covworkdir ./cov_work -covtest tb_noc_router_5port -covoverwrite -incdir ../rtl/include ../rtl/include/riscv_ai_gpu_pkg.sv ../rtl/noc/*.sv ../tb/unit_tb/tb_noc_router_5port.sv -top tb_noc_router_5port
+# 7. tb_noc_router_5port
+# irun -sv -64bit -access +rwc -coverage all -covdut noc_router_5port -covworkdir ./cov_work -covtest tb_noc_router_5port -covoverwrite -incdir ../rtl/include ../rtl/include/riscv_ai_gpu_pkg.sv ../rtl/noc/noc_router_5port.sv ../tb/unit_tb/tb_noc_router_5port.sv -top tb_noc_router_5port
 
-#-------------------------------------------------------------------------------
-# [TEST 8] 10-Core AI GPU Cluster Subsystem & Banked Scratchpad (8 Tests)
-#-------------------------------------------------------------------------------
-# Command:
-# irun -sv -gui -access +rwc -coverage all -covdut ai_gpu_cluster -covworkdir ./cov_work -covtest tb_ai_gpu_cluster -covoverwrite -incdir ../rtl/include ../rtl/include/riscv_ai_gpu_pkg.sv ../rtl/core/*.sv ../rtl/neural/*.sv ../rtl/noc/*.sv ../rtl/cluster/*.sv ../tb/cluster_tb/tb_ai_gpu_cluster.sv -top tb_ai_gpu_cluster
+# 8. tb_noc_mesh_10x10
+# irun -sv -64bit -access +rwc -coverage all -covdut noc_mesh_2d_10x10 -covworkdir ./cov_work -covtest tb_noc_mesh_10x10 -covoverwrite -incdir ../rtl/include ../rtl/include/riscv_ai_gpu_pkg.sv ../rtl/noc/*.sv ../tb/unit_tb/tb_noc_mesh_10x10.sv -top tb_noc_mesh_10x10
 
-#-------------------------------------------------------------------------------
-# [MASTER FULL-CHIP TEST] 100-Core Top-Level ASIC SoC (20 Rigorous Tests TC01-TC20)
-#-------------------------------------------------------------------------------
-# Command:
-# irun -sv -gui -access +rwc -coverage all -covdut riscv_ai_gpu_top -covworkdir ./cov_work -covtest tb_riscv_ai_gpu_top -covoverwrite -incdir ../rtl/include ../rtl/include/riscv_ai_gpu_pkg.sv ../rtl/core/*.sv ../rtl/neural/*.sv ../rtl/agentic/*.sv ../rtl/noc/*.sv ../rtl/cluster/*.sv ../rtl/memory/*.sv ../rtl/top/*.sv ../tb/top_tb/tb_riscv_ai_gpu_top.sv -top tb_riscv_ai_gpu_top
+# 9. tb_axi_dma_controller
+# irun -sv -64bit -access +rwc -coverage all -covdut axi_dma_controller -covworkdir ./cov_work -covtest tb_axi_dma_controller -covoverwrite -incdir ../rtl/include ../rtl/include/riscv_ai_gpu_pkg.sv ../rtl/memory/axi_dma_controller.sv ../tb/unit_tb/tb_axi_dma_controller.sv -top tb_axi_dma_controller
 
-echo "Run any command above inside the 'work/' directory on the EDA server."
+# 10. tb_agent_dag_scheduler
+# irun -sv -64bit -access +rwc -coverage all -covdut agent_dag_scheduler -covworkdir ./cov_work -covtest tb_agent_dag_scheduler -covoverwrite -incdir ../rtl/include ../rtl/include/riscv_ai_gpu_pkg.sv ../rtl/agentic/agent_dag_scheduler.sv ../tb/unit_tb/tb_agent_dag_scheduler.sv -top tb_agent_dag_scheduler
+
+# 11. tb_paged_kv_cache_mgr
+# irun -sv -64bit -access +rwc -coverage all -covdut paged_kv_cache_mgr -covworkdir ./cov_work -covtest tb_paged_kv_cache_mgr -covoverwrite -incdir ../rtl/include ../rtl/include/riscv_ai_gpu_pkg.sv ../rtl/agentic/paged_kv_cache_mgr.sv ../tb/unit_tb/tb_paged_kv_cache_mgr.sv -top tb_paged_kv_cache_mgr
+
+# 12. tb_agentic_coprocessor
+# irun -sv -64bit -access +rwc -coverage all -covdut agentic_coprocessor_top -covworkdir ./cov_work -covtest tb_agentic_coprocessor -covoverwrite -incdir ../rtl/include ../rtl/include/riscv_ai_gpu_pkg.sv ../rtl/agentic/*.sv ../rtl/noc/noc_router_5port.sv ../tb/unit_tb/tb_agentic_coprocessor.sv -top tb_agentic_coprocessor
+
+# 13. tb_riscv_ai_gpu_top (Full-Chip 100-Core ASIC SoC)
+# irun -sv -64bit -access +rwc -coverage all -covdut riscv_ai_gpu_top -covworkdir ./cov_work -covtest tb_riscv_ai_gpu_top -covoverwrite -incdir ../rtl/include ../rtl/include/riscv_ai_gpu_pkg.sv ../rtl/core/*.sv ../rtl/neural/*.sv ../rtl/agentic/*.sv ../rtl/noc/*.sv ../rtl/cluster/*.sv ../rtl/memory/*.sv ../rtl/top/*.sv ../tb/integration_tb/tb_riscv_ai_gpu_top.sv -top tb_riscv_ai_gpu_top
+
+echo "To run any simulation, execute the command from inside the 'work/' directory on the EDA server."

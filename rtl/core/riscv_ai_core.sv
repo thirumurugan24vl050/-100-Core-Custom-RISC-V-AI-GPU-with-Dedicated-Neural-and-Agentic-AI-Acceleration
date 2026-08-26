@@ -1,7 +1,13 @@
 //=============================================================================
 // Project: 100-Core Custom RISC-V AI GPU with Neural & Agentic Acceleration
 // File: riscv_ai_core.sv
-// Description: Fully Integrated Multi-Warp RISC-V AI GPU Compute Core.
+// Description: Fully Integrated Multi-Warp RISC-V AI GPU Compute Core:
+//              - 4 Hardware Warps x 32 Logical Lanes (SIMT)
+//              - Full RV32IM Scalar Pipeline (37 RV32I + 8 RV32M instructions)
+//              - 256-bit Vector SIMD Execution Unit (INT8/INT4/FP16/INT32)
+//              - 8-entry Reconvergence Stack for Branch Divergence
+//              - Dedicated 64-bit LSU with SPAD and Global SRAM resolution
+//              - Coprocessor Dispatches to NMU, Agentic Coprocessor, and Barriers
 // Standard: IEEE 1800-2017 SystemVerilog
 //=============================================================================
 
@@ -26,16 +32,17 @@ module riscv_ai_core import riscv_ai_gpu_pkg::*; (
     output logic                   scratchpad_req_write,
     output logic [15:0]            scratchpad_req_addr,
     output logic [31:0]            scratchpad_req_wdata,
+    output logic [3:0]             scratchpad_req_wstrb,
     input  logic [31:0]            scratchpad_resp_rdata,
     input  logic                   scratchpad_resp_valid,
 
-    // L2 Global Memory Interface
-    output logic                   l2_mem_req_valid,
-    output logic                   l2_mem_req_write,
-    output logic [XLEN-1:0]        l2_mem_req_addr,
-    output logic [XLEN-1:0]        l2_mem_req_wdata,
-    input  logic [XLEN-1:0]        l2_mem_resp_rdata,
-    input  logic                   l2_mem_resp_valid,
+    // Global Memory Interface (via Cluster Gateway)
+    output logic                   global_mem_req_valid,
+    output logic                   global_mem_req_write,
+    output logic [63:0]            global_mem_req_addr,
+    output logic [31:0]            global_mem_req_wdata,
+    input  logic [31:0]            global_mem_resp_rdata,
+    input  logic                   global_mem_resp_valid,
 
     // Cluster Neural Engine Interface
     output logic                   neural_req_valid,
@@ -60,11 +67,11 @@ module riscv_ai_core import riscv_ai_gpu_pkg::*; (
     input  logic                   barrier_release
 );
 
-    // Warp enable controls
+    // Warp enable and stall masks
     logic [NUM_WARPS-1:0] warp_enable_mask;
     logic [NUM_WARPS-1:0] warp_barrier_stall;
 
-    // Fetch wires
+    // Fetch stage wires
     logic [1:0]      sched_fetch_warp;
     logic            sched_fetch_valid;
     logic            fetch_out_valid;
@@ -72,15 +79,19 @@ module riscv_ai_core import riscv_ai_gpu_pkg::*; (
     logic [XLEN-1:0] fetch_out_pc;
     logic [31:0]     fetch_out_instruction;
 
-    // Decode wires
+    // Decode stage wires
     logic [1:0]      dec_warp_id;
     logic [4:0]      dec_rs1_addr, dec_rs2_addr, dec_rd_addr;
     logic            dec_reg_write_en, dec_vec_write_en;
     logic [XLEN-1:0] dec_imm_val;
     logic            dec_is_scalar, dec_is_vec, dec_is_neural, dec_is_agentic;
     logic            dec_is_load, dec_is_store, dec_is_branch, dec_is_jump, dec_is_csr;
-    logic [3:0]      dec_scalar_op, dec_vec_op, dec_neural_op, dec_agentic_op;
+    logic            dec_is_barrier, dec_is_fence, dec_is_yield;
+    logic [4:0]      dec_scalar_op;
+    logic [3:0]      dec_vec_op;
     logic [1:0]      dec_vec_dtype;
+    logic [3:0]      dec_neural_op, dec_agentic_op;
+    logic [1:0]      dec_fence_scope;
     logic [2:0]      dec_funct3;
     logic [11:0]     dec_csr_addr;
     logic            dec_illegal;
@@ -108,9 +119,13 @@ module riscv_ai_core import riscv_ai_gpu_pkg::*; (
 
     // LSU wires
     logic            lsu_busy;
+    logic            lsu_req_ready;
     logic            lsu_resp_valid;
     logic [1:0]      lsu_resp_warp;
-    logic [XLEN-1:0] lsu_resp_rdata;
+    logic [4:0]      lsu_resp_rd;
+    logic [XLEN-1:0] lsu_resp_rdata_scalar;
+    logic [VLEN-1:0] lsu_resp_rdata_vector;
+    logic            lsu_resp_is_vector;
 
     // Barrier tracking
     always_ff @(posedge clk or negedge rst_n) begin
@@ -168,7 +183,7 @@ module riscv_ai_core import riscv_ai_gpu_pkg::*; (
         .decode_ready         (!dec_hazard_stall && !lsu_busy)
     );
 
-    // 3. Decode Unit Instance
+    // 3. Decode Unit Instance (69 Defined Instructions)
     core_decode_unit u_decode (
         .instruction          (fetch_out_instruction),
         .pc_in                (fetch_out_pc),
@@ -189,11 +204,15 @@ module riscv_ai_core import riscv_ai_gpu_pkg::*; (
         .is_branch            (dec_is_branch),
         .is_jump              (dec_is_jump),
         .is_csr               (dec_is_csr),
+        .is_barrier           (dec_is_barrier),
+        .is_fence             (dec_is_fence),
+        .is_yield             (dec_is_yield),
         .scalar_alu_op        (dec_scalar_op),
         .vector_op            (dec_vec_op),
         .vector_dtype         (dec_vec_dtype),
         .neural_op            (dec_neural_op),
         .agentic_op           (dec_agentic_op),
+        .fence_scope          (dec_fence_scope),
         .funct3_out           (dec_funct3),
         .csr_addr             (dec_csr_addr),
         .illegal_instruction  (dec_illegal)
@@ -222,7 +241,7 @@ module riscv_ai_core import riscv_ai_gpu_pkg::*; (
         .w_vec_data           (vrf_wdata)
     );
 
-    // 5. Scalar ALU Instance
+    // 5. Scalar ALU Instance (37 RV32I + 8 RV32M)
     logic [XLEN-1:0] alu_op_b;
     assign alu_op_b = (dec_is_scalar && (fetch_out_instruction[6:0] == 7'b0010011 || fetch_out_instruction[6:0] == 7'b0110111 || fetch_out_instruction[6:0] == 7'b0010111)) ? dec_imm_val : rf_rdata2;
 
@@ -236,7 +255,7 @@ module riscv_ai_core import riscv_ai_gpu_pkg::*; (
         .comparison_result    (comp_res)
     );
 
-    // 6. Vector SIMD Unit Instance
+    // 6. Vector SIMD Unit Instance (256-bit)
     core_vector_unit u_vector_unit (
         .clk                  (clk),
         .rst_n                (rst_n),
@@ -251,35 +270,60 @@ module riscv_ai_core import riscv_ai_gpu_pkg::*; (
         .vec_ready            (vec_ready)
     );
 
-    // 7. Load/Store Unit & L1 D-Cache
-    core_lsu_dcache u_lsu (
+    // 7. Branch Reconvergence Stack Instance (8 entries / warp)
+    core_reconvergence_stack u_reconv_stack (
         .clk                  (clk),
         .rst_n                (rst_n),
-        .mem_req_valid        (fetch_out_valid && (dec_is_load || dec_is_store)),
-        .mem_req_warp_id      (dec_warp_id),
-        .mem_req_write        (dec_is_store),
-        .mem_req_funct3       (dec_funct3),
-        .mem_req_addr         (rf_rdata1 + dec_imm_val),
-        .mem_req_wdata        (rf_rdata2),
-        .mem_resp_valid       (lsu_resp_valid),
-        .mem_resp_warp_id     (lsu_resp_warp),
-        .mem_resp_rdata       (lsu_resp_rdata),
-        .lsu_busy             (lsu_busy),
-        .scratchpad_req_valid (scratchpad_req_valid),
-        .scratchpad_req_write (scratchpad_req_write),
-        .scratchpad_req_addr  (scratchpad_req_addr),
-        .scratchpad_req_wdata (scratchpad_req_wdata),
-        .scratchpad_resp_rdata(scratchpad_resp_rdata),
-        .scratchpad_resp_valid(scratchpad_resp_valid),
-        .l2_mem_req_valid     (l2_mem_req_valid),
-        .l2_mem_req_write     (l2_mem_req_write),
-        .l2_mem_req_addr      (l2_mem_req_addr),
-        .l2_mem_req_wdata     (l2_mem_req_wdata),
-        .l2_mem_resp_rdata    (l2_mem_resp_rdata),
-        .l2_mem_resp_valid    (l2_mem_resp_valid)
+        .warp_id              (dec_warp_id),
+        .diverge_push_valid   (fetch_out_valid && dec_is_branch && branch_taken),
+        .diverge_else_mask    (~32'h00000001),
+        .diverge_reconv_pc    (fetch_out_pc + 32'd4),
+        .reconv_pop_valid     (1'b0),
+        .current_active_mask  (),
+        .stack_empty          (),
+        .stack_full           ()
     );
 
-    // 8. Coprocessor Dispatch Lines
+    // 8. Load/Store Unit (LSU)
+    core_lsu u_lsu (
+        .clk                  (clk),
+        .rst_n                (rst_n),
+        .req_valid            (fetch_out_valid && (dec_is_load || dec_is_store || dec_is_fence)),
+        .req_ready            (lsu_req_ready),
+        .warp_id              (dec_warp_id),
+        .is_load              (dec_is_load),
+        .is_store             (dec_is_store),
+        .is_vector_mem        (1'b0),
+        .is_fence             (dec_is_fence),
+        .fence_scope          (dec_fence_scope),
+        .funct3               (dec_funct3),
+        .addr                 ({32'd0, rf_rdata1 + dec_imm_val}),
+        .wdata_scalar         (rf_rdata2),
+        .wdata_vector         (vrf_rdata2),
+        .rd_addr              (dec_rd_addr),
+        .resp_valid           (lsu_resp_valid),
+        .resp_warp_id         (lsu_resp_warp),
+        .resp_rd_addr         (lsu_resp_rd),
+        .resp_rdata_scalar    (lsu_resp_rdata_scalar),
+        .resp_rdata_vector    (lsu_resp_rdata_vector),
+        .resp_is_vector       (lsu_resp_is_vector),
+        .busy                 (lsu_busy),
+        .spad_req_valid       (scratchpad_req_valid),
+        .spad_req_write       (scratchpad_req_write),
+        .spad_req_addr        (scratchpad_req_addr),
+        .spad_req_wdata       (scratchpad_req_wdata),
+        .spad_req_wstrb       (scratchpad_req_wstrb),
+        .spad_resp_rdata      (scratchpad_resp_rdata),
+        .spad_resp_valid      (scratchpad_resp_valid),
+        .global_req_valid     (global_mem_req_valid),
+        .global_req_write     (global_mem_req_write),
+        .global_req_addr      (global_mem_req_addr),
+        .global_req_wdata     (global_mem_req_wdata),
+        .global_resp_rdata    (global_mem_resp_rdata),
+        .global_resp_valid    (global_mem_resp_valid)
+    );
+
+    // 9. Coprocessor Dispatch Lines
     assign neural_req_valid  = fetch_out_valid && dec_is_neural;
     assign neural_req_op     = dec_neural_op;
     assign neural_req_src_a  = rf_rdata1;
@@ -291,10 +335,10 @@ module riscv_ai_core import riscv_ai_gpu_pkg::*; (
     assign agent_req_param1  = rf_rdata1;
     assign agent_req_param2  = rf_rdata2;
 
-    assign barrier_req_valid = fetch_out_valid && (fetch_out_instruction[6:0] == OPCODE_CUSTOM_SYNC);
+    assign barrier_req_valid = fetch_out_valid && dec_is_barrier;
     assign barrier_req_warp  = dec_warp_id;
 
-    // 9. Writeback Multiplexer
+    // 10. Writeback Multiplexer
     always_comb begin
         rf_wen   = 1'b0;
         rf_wwarp = dec_warp_id;
@@ -307,9 +351,17 @@ module riscv_ai_core import riscv_ai_gpu_pkg::*; (
         vrf_wdata = vec_res;
 
         if (lsu_resp_valid) begin
-            rf_wen   = 1'b1;
-            rf_wwarp = lsu_resp_warp;
-            rf_wdata = lsu_resp_rdata;
+            if (lsu_resp_is_vector) begin
+                vrf_wen   = 1'b1;
+                vrf_wwarp = lsu_resp_warp;
+                vrf_waddr = lsu_resp_rd;
+                vrf_wdata = lsu_resp_rdata_vector;
+            end else begin
+                rf_wen   = 1'b1;
+                rf_wwarp = lsu_resp_warp;
+                rf_waddr = lsu_resp_rd;
+                rf_wdata = lsu_resp_rdata_scalar;
+            end
         end else if (neural_resp_valid) begin
             rf_wen   = 1'b1;
             rf_wdata = neural_resp_data;
