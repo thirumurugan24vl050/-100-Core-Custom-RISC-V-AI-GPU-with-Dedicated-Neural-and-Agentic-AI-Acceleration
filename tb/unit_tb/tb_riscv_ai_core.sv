@@ -307,7 +307,7 @@ module tb_riscv_ai_core;
         $display("================================================================================");
 
         if (test_fail_count == 0)
-            $display(" >>> ALL 8 TESTS PASSED (100% SUCCESS) <<<");
+            $display(" >>> ALL 8 TESTS PASSED (100%% SUCCESS) <<<");
         else
             $display(" >>> FAILURES DETECTED IN tb_riscv_ai_core <<<");
 
