@@ -221,7 +221,7 @@ typedef struct packed {
 | `0x02` | `MSG_MEM_RESP` | `[127:112] transaction_id[15:0]`<br>`[111:96] status[15:0]`<br>`[95:32] read_data[63:0]`<br>`[31:0] reserved[31:0]` | 16+16+64+32 = **128 bits** |
 | `0x03` | `MSG_AGENT_TASK` | `[127:120] task_id[7:0]`<br>`[119:88] parent_mask[31:0]`<br>`[87:80] prio[7:0]`<br>`[79:72] dest_cluster[7:0]`<br>`[71:40] instruction_ptr[31:0]`<br>`[39:8] context_ptr[31:0]`<br>`[7:0] reserved[7:0]` | 8+32+8+8+32+32+8 = **128 bits** |
 | `0x04` | `MSG_AGENT_EVENT`| `[127:120] task_id[7:0]`<br>`[119:112] completion_code[7:0]`<br>`[111:96] event_id[15:0]`<br>`[95:64] token_val[31:0]`<br>`[63:0] reserved[63:0]` | 8+8+16+32+64 = **128 bits** |
-| `0x05` | `MSG_BARRIER_SYNC`| `[127:120] cluster_id[7:0]`<br>`[119:112] barrier_id[7:0]`<br>`[111:72] warp_mask[39:0]`<br>`[71:0] reserved[72:0]` | 8+8+40+72 = **128 bits** |
+| `0x05` | `MSG_BARRIER_SYNC`| `[127:120] cluster_id[7:0]`<br>`[119:112] barrier_id[7:0]`<br>`[111:72] warp_mask[39:0]`<br>`[71:0] reserved[71:0]` | 8+8+40+72 = **128 bits** |
 | `0x06` | `MSG_TOKEN_ROUTE`| `[127:112] token_id[15:0]`<br>`[111:104] dest_cluster[7:0]`<br>`[103:8] payload_data[95:0]`<br>`[7:0] reserved[7:0]` | 16+8+96+8 = **128 bits** |
 
 ---

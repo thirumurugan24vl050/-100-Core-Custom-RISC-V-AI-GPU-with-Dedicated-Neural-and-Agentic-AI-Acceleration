@@ -1,5 +1,5 @@
 -sv
--i ./rtl/include
+-incdir ./rtl/include
 ./rtl/include/riscv_ai_gpu_pkg.sv
 ./rtl/core/core_fetch_unit.sv
 ./rtl/core/core_decode_unit.sv

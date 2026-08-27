@@ -15,8 +15,8 @@ This document provides formal microarchitectural state diagrams, Algorithmic Sta
 |  |     GLOBAL AGENTIC AI ENGINE   |  |   HIGH-SPEED AXI5 / DMA ENGINE |  |   GLOBAL PLL /     |  |
 |  |  * Dynamic Task DAG Scheduler  |  |  * 512-bit Host Memory Bus     |  |   RESET CONTROLLER |  |
 |  |  * Paged KV-Cache Directory    |  |  * 512-bit Scatter-Gather Descs|  |  * Synchronous     |  |
-|  |  * Speculative MCTS Tree Unit  |  |  * 64-bit Physical Addressing  |  |    De-assertion    |  |
-|  |  * Priority Token Router       |  +--------------------------------+  +--------------------+  |
+|  |  * Priority Token Router       |  |  * 64-bit Physical Addressing  |  |    De-assertion    |  |
+|  |  * Hardware Event Dispatcher   |  +--------------------------------+  +--------------------+  |
 |  +--------------------------------+                                                              |
 |                                                                                                  |
 |  +--------------------------------------------------------------------------------------------+  |
@@ -88,7 +88,7 @@ Manages instruction pointers for 4 concurrent warps with branch redirection and 
 ---
 
 ### 2.2 Core Warp Scheduler & Scoreboard (`core_warp_scheduler.sv`)
-Tracks 4 architectural warps ($W_0..W_3$) with 7 defined stall states: `RUNNING`, `READY`, `WAIT_MEM`, `WAIT_NMU`, `WAIT_BARRIER`, `WAIT_AGENT`, `STALL_DIVERGE`.
+Tracks 4 architectural warps ($W_0..W_3$) across 7 authoritative warp states: `WARP_READY`, `WARP_RUNNING`, `WARP_WAIT_MEM`, `WARP_WAIT_NMU`, `WARP_WAIT_BARRIER`, `WARP_WAIT_AGENT`, `WARP_DONE`. (Branch divergence is handled separately via the 8-entry reconvergence stack in `core_reconvergence_stack.sv`).
 
 ```
        +---------------------------------------------+
@@ -128,7 +128,7 @@ Tracks 4 architectural warps ($W_0..W_3$) with 7 defined stall states: `RUNNING`
 
 ---
 
-### 2.3 Core LSU & Scratchpad / L1 Interface (`core_lsu_dcache.sv`)
+### 2.3 Core LSU & Scratchpad / NoC Interface (`core_lsu.sv`)
 Handles 32-bit scalar and 256-bit SIMD memory operations, scratchpad bank routing, and 64-bit physical address generation.
 
 ```

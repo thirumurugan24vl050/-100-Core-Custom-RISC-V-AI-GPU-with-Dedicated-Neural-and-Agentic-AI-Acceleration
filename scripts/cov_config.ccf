@@ -5,6 +5,7 @@ set_expr_coverable_operators -all
 set_expr_coverable_statements -all
 set_expr_scoring -struct
 set_toggle_scoring -sv_enum
+set_toggle_scoring -sv_mda 24
+set_covergroup -new_instance_reporting
 
-select_coverage -beft -module riscv_ai_gpu_top...
-select_coverage -beft -instance tb_riscv_ai_gpu_top.dut...
+select_coverage -beft -module *...

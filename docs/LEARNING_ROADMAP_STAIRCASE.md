@@ -79,7 +79,7 @@ $$\text{Theory} \longrightarrow \text{RTL Design} \longrightarrow \text{Self-Che
 17. **Level 17: Build & Run Compiled C Programs on RTL**: Compiling bare-metal C programs with RISC-V GCC, generating memory initialization files (`.hex`), and simulating execution on RTL.
 18. **Level 18: GPU Architecture Principles**: SIMD vs SIMT, threads, warps, lanes, occupancy, warp scheduling, and latency hiding.
 19. **Level 19: SIMT Warps, Active Masks & Branch Divergence**: 4 warp contexts per core, 32-lane logical warp width, 32-bit active lane masks, and 8-entry branch reconvergence stacks.
-20. **Level 20: 4-Warp RISC-V SIMT Core (`riscv_ai_tile.sv`)**: Integrated SIMT tile with round-robin warp scheduler, decoupled operand collection, and stall reason tracking (`WAIT_MEM`, `WAIT_NMU`, `WAIT_BARRIER`, `STALL_DIVERGE`).
+20. **Level 20: 4-Warp RISC-V SIMT Core (`riscv_ai_tile.sv`)**: Integrated SIMT tile with round-robin warp scheduler, decoupled operand collection, and authoritative 7-state warp tracking (`WARP_READY`, `WARP_RUNNING`, `WARP_WAIT_MEM`, `WARP_WAIT_NMU`, `WARP_WAIT_BARRIER`, `WARP_WAIT_AGENT`, `WARP_DONE`). Branch divergence is tracked separately via the 8-entry reconvergence stack.
 
 ---
 
@@ -143,3 +143,30 @@ $$\text{Theory} \longrightarrow \text{RTL Design} \longrightarrow \text{Self-Che
 | **M10: 10x10 NoC Mesh + DMA + Memory** | 100 Routers, XY DOR, 512b DMA | `xrun` + `genus` | Zero flit drop, 512-bit DMA burst transfer log |
 | **M11: Agentic Coprocessor + Top SoC** | 64-Task DAG, 1024-Block KV Cache | `xrun -coverage all` + `imc` | 20/20 top full-chip test pass, IMC coverage database |
 | **M12: Verification & ASIC Signoff** | Coverage, Synthesis, STA, P&R, GDSII | `genus` $\rightarrow$ `tempus` $\rightarrow$ `innovus` $\rightarrow$ `voltus` | Synthesized netlist, 1 GHz STA report, clean DRC/LVS, GDSII |
+
+---
+
+## 4. Three-Tier Verification Ladder & 8-Test Learning Protocol
+
+To bridge learning with rigorous tapeout signoff, the verification methodology is structured in three explicit tiers:
+
+```
+[TIER 1: Bring-Up Gate]  28 Production RTL Blocks × 8 Unit Tests (224 Local Tests in Isolation)
+                                    ↓
+[TIER 2: Subsystem Regr] 13 Unified Verification Environments (~260 Formal Tests + Covergroups)
+                                    ↓
+[TIER 3: Full-Chip SoC]  20 Tapeout Signoff Tests (TC01–TC20 across all 10 Clusters / 100 Cores)
+```
+
+### 4.1 Tier 1: Local 8-Test Gate per RTL Block (28 Blocks × 8 = 224 Tests)
+Each of the 28 production RTL blocks passes a local 8-test gate in isolation before being merged into its owning verification environment:
+- **Normal (2 Tests)**: Nominal, spec-typical operation (e.g., standard arithmetic, nominal FIFO traffic, default barrier arrival).
+- **Corner (5 Tests)**: Edge/boundary conditions specific to that block (e.g., FIFO full/empty, min/max dynamic ranges, boundary memory addresses, saturation clamping, active-lane divergence).
+- **Ultimate (1 Test)**: Worst-case combined scenario stressing multiple corner conditions simultaneously (e.g., max concurrency + full FIFOs + saturating values at once).
+
+### 4.2 Tier 2: Unified 13 Verification Environments (Doc 7)
+The 28 RTL blocks graduate into 13 formal regression environments with functional covergroups, assertions (SVA), and merged IMC coverage scoring.
+
+### 4.3 Tier 3: Full-Chip Tapeout Integration (TC01–TC20)
+20 dedicated full-chip test cases exercising all 10 clusters (100 cores), all routers, DMA, and agentic coprocessor for 100% signoff.
+

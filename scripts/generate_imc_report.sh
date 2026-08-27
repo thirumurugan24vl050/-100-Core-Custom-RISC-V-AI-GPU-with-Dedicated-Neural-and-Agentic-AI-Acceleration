@@ -1,16 +1,24 @@
 #!/bin/bash
 #=============================================================================
-# Generate IMC Coverage Report
+# Cadence IMC Coverage Report Generation Script
 #=============================================================================
-cd /mnt/rl-home/THIRU/syn_workshop/riscv_ai_gpu/work || exit 1
-source ../scripts/setup_cadence_env.sh
 
-rm -rf coverage_summary
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/setup_cadence_env.sh" 2>/dev/null || true
 
-cat << 'EOF' > imc_report.cmd
-load -run cov_work/scope/tb_riscv_ai_gpu_top
-report_metrics -detail -both -overwrite -out coverage_summary
+echo "================================================================================"
+echo " [CADENCE IMC] Generating Unified Coverage Report..."
+echo "================================================================================"
+
+rm -rf coverage_merged_report merged_cov
+
+cat << 'EOF' > merge_cov.cmd
+merge cov_work/scope/* -out merged_cov -overwrite
+load -run merged_cov
+report_metrics -detail -both -overwrite -out coverage_merged_report
 EOF
 
-imc -64bit -exec imc_report.cmd || true
-cat coverage_summary/index.html 2>/dev/null | grep -E "Overall|Grade|Covered" | head -n 30 || true
+imc -64bit -exec merge_cov.cmd
+
+echo ""
+echo "Coverage report generated under: $(pwd)/coverage_merged_report"
