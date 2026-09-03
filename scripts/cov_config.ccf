@@ -1,5 +1,5 @@
 # Cadence Incisive Coverage Configuration File (cov_config.ccf)
-# Enable Full Coverage Scoring for Block, Expression, Toggle, and FSM
+# Enable Full Coverage Scoring for Block, Expression, Toggle, FSM, Assertion & Functional
 
 set_expr_coverable_operators -all
 set_expr_coverable_statements -all
@@ -8,4 +8,4 @@ set_toggle_scoring -sv_enum
 set_toggle_scoring -sv_mda 24
 set_covergroup -new_instance_reporting
 
-select_coverage -beft -module *...
+// select_coverage lines removed, handled by -coverage all in irun

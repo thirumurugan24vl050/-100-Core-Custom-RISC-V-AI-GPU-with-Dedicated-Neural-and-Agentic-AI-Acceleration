@@ -120,6 +120,10 @@ module tb_neural_postproc;
         @(posedge clk);
         data_in   <= 16'hFF00; // -1.0 in Q8.8
         @(posedge clk);
+        data_in   <= 16'h0400; // +4.0 in Q8.8 (x > 3.0)
+        @(posedge clk);
+        data_in   <= 16'hFC00; // -4.0 in Q8.8 (x < -3.0)
+        @(posedge clk);
         req_valid <= 1'b0;
         repeat (3) @(posedge clk);
 
@@ -136,6 +140,10 @@ module tb_neural_postproc;
         data_in   <= 16'h0000; // x = 0 -> sigma(0) = 0.5
         @(posedge clk);
         data_in   <= 16'h0400; // x = +4 -> ~1.0
+        @(posedge clk);
+        data_in   <= 16'h0200; // x = +2 -> ~0.75
+        @(posedge clk);
+        data_in   <= 16'hFE00; // x = -2 -> ~0.25
         @(posedge clk);
         data_in   <= 16'hFC00; // x = -4 -> ~0.0
         @(posedge clk);
@@ -233,8 +241,39 @@ module tb_neural_postproc;
         test_pass_count++;
 
         //---------------------------------------------------------------------
-        // SUMMARY
+        // Test 9: RMSNorm Corner Cases (Len=0, Last=1 in IDLE, req_valid=0 in ACCUM)
         //---------------------------------------------------------------------
+        $display(" [TEST 9] Corner 6: RMSNorm Len=0, Single Cycle, and Valid drops");
+        @(posedge clk);
+        req_valid <= 1'b1;
+        op_type   <= 4'h4; // RMSNORM
+        rmsnorm_len <= 6'd0; // Trigger len=0 condition
+        rmsnorm_last <= 1'b1; // Trigger last=1 from STATE_IDLE
+        data_in <= 16'h0200;
+        @(posedge clk);
+        req_valid <= 1'b0; // Drop valid
+        repeat (5) @(posedge clk);
+
+        // Test valid drop in STATE_ACCUM
+        @(posedge clk);
+        req_valid <= 1'b1;
+        op_type   <= 4'h4; // RMSNORM
+        rmsnorm_len <= 6'd4;
+        rmsnorm_last <= 1'b0;
+        data_in <= 16'h0100;
+        @(posedge clk);
+        req_valid <= 1'b0; // Valid drop in STATE_ACCUM
+        @(posedge clk);
+        req_valid <= 1'b1; // Bring it back
+        rmsnorm_last <= 1'b1;
+        data_in <= 16'h0100;
+        @(posedge clk);
+        req_valid <= 1'b0;
+        repeat (5) @(posedge clk);
+
+        //=====================================================================
+        // Summary
+        //=====================================================================
         $display("================================================================================");
         $display(" [TESTBENCH SUMMARY] tb_neural_postproc: PASSED=%0d, FAILED=%0d", test_pass_count, test_fail_count);
         $display("================================================================================");

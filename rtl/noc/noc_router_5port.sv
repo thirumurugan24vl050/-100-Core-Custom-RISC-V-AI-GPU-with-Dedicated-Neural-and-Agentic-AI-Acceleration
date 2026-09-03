@@ -58,9 +58,9 @@ module noc_router_5port import riscv_ai_gpu_pkg::*; (
             else if (dst_x < cur_x)
                 compute_route = 3'(PORT_WEST);
             else if (dst_y > cur_y)
-                compute_route = 3'(PORT_SOUTH);
-            else if (dst_y < cur_y)
                 compute_route = 3'(PORT_NORTH);
+            else if (dst_y < cur_y)
+                compute_route = 3'(PORT_SOUTH);
             else
                 compute_route = 3'(PORT_LOCAL);
         end

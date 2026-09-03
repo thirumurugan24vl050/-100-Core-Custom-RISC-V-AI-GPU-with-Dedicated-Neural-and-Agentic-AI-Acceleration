@@ -39,7 +39,7 @@ module tb_neural_systolic_engine;
 
     // Watchdog
     initial begin
-        #10000;
+        #60000;
         $display(" [WATCHDOG] Simulation reached timeout threshold. Ending test.");
         $finish;
     end

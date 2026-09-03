@@ -27,24 +27,24 @@ module neural_softmax_unit import riscv_ai_gpu_pkg::*; (
 
     // Stage 2: Subtraction & Exp Approximation
     logic                   s2_valid;
-    logic [15:0]            s2_exp [7:0];
-    logic [31:0]            s2_sum_exp;
+    logic [8:0]             s2_exp [7:0];
+    logic [11:0]            s2_sum_exp;
 
     // Fast Exp approximation: 2^(x * 1.442695)
     // For normalized x <= 0: exp(x) approx (1 + x/16)^16
-    function automatic logic [15:0] fast_exp(input logic signed [15:0] delta);
+    function automatic logic [8:0] fast_exp(input logic signed [15:0] delta);
         logic signed [15:0] clamped_delta;
         logic [31:0] val;
         begin
             clamped_delta = delta;
-            if (clamped_delta < -16'sd2048) // <= -8.0
-                fast_exp = 16'd0;
+            if (clamped_delta <= -16'sd2048) // <= -8.0
+                fast_exp = 9'd0;
             else if (clamped_delta >= 0)
-                fast_exp = 16'd256; // 1.0 in Q8.8
+                fast_exp = 9'd256; // 1.0 in Q8.8
             else begin
                 // Linear decay approximation for fast inference: 256 * (1 + delta/8)
                 val = 32'd256 + ((32'(signed'(clamped_delta)) * 32'd32) >>> 8);
-                fast_exp = (val[31] || val == 0) ? 16'd1 : val[15:0];
+                fast_exp = val[8:0];
             end
         end
     endfunction
@@ -87,7 +87,7 @@ module neural_softmax_unit import riscv_ai_gpu_pkg::*; (
                     s2_exp[i] <= fast_exp(s1_logits[i] - s1_max);
                     sum_acc   = sum_acc + 32'(fast_exp(s1_logits[i] - s1_max));
                 end
-                s2_sum_exp <= (sum_acc == 0) ? 32'd1 : sum_acc;
+                s2_sum_exp <= sum_acc[11:0];
             end
         end
     end
@@ -102,7 +102,9 @@ module neural_softmax_unit import riscv_ai_gpu_pkg::*; (
             if (s2_valid) begin
                 for (int i = 0; i < 8; i++) begin
                     // Q0.16 normalized output: (exp[i] << 16) / sum_exp
-                    out_prob[i] <= 16'(((32'(s2_exp[i]) << 16) / s2_sum_exp));
+                    logic [31:0] prob_div;
+                    prob_div = (32'(s2_exp[i]) << 16) / s2_sum_exp;
+                    out_prob[i] <= (prob_div >= 32'h10000) ? 16'hFFFF : 16'(prob_div);
                 end
             end
         end

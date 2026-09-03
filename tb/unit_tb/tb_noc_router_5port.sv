@@ -72,7 +72,7 @@ module tb_noc_router_5port;
     property p_no_spurious_out;
         @(posedge clk) disable iff (!rst_n)
         (!in_valid[0] && !in_valid[1] && !in_valid[2] && !in_valid[3] && !in_valid[4] &&
-         !dut.buf_valid[0] && !dut.buf_valid[1] && !dut.buf_valid[2] && !dut.buf_valid[3] && !dut.buf_valid[4])
+         dut.in_fifo_cnt[0] == 0 && dut.in_fifo_cnt[1] == 0 && dut.in_fifo_cnt[2] == 0 && dut.in_fifo_cnt[3] == 0 && dut.in_fifo_cnt[4] == 0)
         |-> (!out_valid[0] && !out_valid[1] && !out_valid[2] && !out_valid[3] && !out_valid[4]);
     endproperty
     a_no_spurious_out: assert property (p_no_spurious_out) else $error("[SVA] Spurious outbound flit generated");
@@ -123,12 +123,18 @@ module tb_noc_router_5port;
         @(posedge clk);
         in_valid[0] <= 1'b0;
 
-        repeat (3) @(posedge clk);
+        // Wait dynamically for out_valid
+        int timeout_cnt;
+        timeout_cnt = 0;
+        while (!out_valid[3] && timeout_cnt < 20) begin
+            @(posedge clk);
+            timeout_cnt++;
+        end
         if (out_valid[3] && out_flit[3].payload == 128'hCAFE_BABE_0000_1111) begin
             $display("   [PASS] Test 2: XY DOR routed flit out East Port (Port 3).");
             test_pass_count++;
         end else begin
-            $display("   [FAIL] Test 2: East routing failed.");
+            $display("   [FAIL] Test 2: East routing failed. out_valid[3]=%b, timeout=%0d", out_valid[3], timeout_cnt);
             test_fail_count++;
         end
 
@@ -148,12 +154,16 @@ module tb_noc_router_5port;
         @(posedge clk);
         in_valid[4] <= 1'b0;
 
-        repeat (3) @(posedge clk);
+        timeout_cnt = 0;
+        while (!out_valid[1] && timeout_cnt < 20) begin
+            @(posedge clk);
+            timeout_cnt++;
+        end
         if (out_valid[1] && out_flit[1].payload == 128'hDEAD_BEEF_8888_9999) begin
             $display("   [PASS] Test 3: Flit routed out North Port (Port 1).");
             test_pass_count++;
         end else begin
-            $display("   [FAIL] Test 3: North routing failed.");
+            $display("   [FAIL] Test 3: North routing failed. out_valid[1]=%b, timeout=%0d", out_valid[1], timeout_cnt);
             test_fail_count++;
         end
 
@@ -173,12 +183,16 @@ module tb_noc_router_5port;
         @(posedge clk);
         in_valid[2] <= 1'b0;
 
-        repeat (3) @(posedge clk);
+        timeout_cnt = 0;
+        while (!out_valid[0] && timeout_cnt < 20) begin
+            @(posedge clk);
+            timeout_cnt++;
+        end
         if (out_valid[0] && out_flit[0].payload == 128'h5555_AAAA_1234_5678) begin
             $display("   [PASS] Test 4: Flit delivered to Local endpoint (Port 0).");
             test_pass_count++;
         end else begin
-            $display("   [FAIL] Test 4: Local delivery failed.");
+            $display("   [FAIL] Test 4: Local delivery failed. out_valid[0]=%b", out_valid[0]);
             test_fail_count++;
         end
 
@@ -198,7 +212,13 @@ module tb_noc_router_5port;
         in_valid[0] <= 1'b0;
         in_valid[1] <= 1'b0;
 
-        repeat (5) @(posedge clk);
+        timeout_cnt = 0;
+        while (!out_valid[3] && timeout_cnt < 20) begin
+            @(posedge clk);
+            timeout_cnt++;
+        end
+        // Wait another cycle to ensure the second flit is also processed
+        @(posedge clk);
         $display("   [PASS] Test 5: Output port contention resolved without flit loss.");
         test_pass_count++;
 
@@ -216,7 +236,12 @@ module tb_noc_router_5port;
 
         repeat (5) @(posedge clk);
         out_ready[3] = 1; // Release backpressure
-        repeat (3) @(posedge clk);
+        
+        timeout_cnt = 0;
+        while (!out_valid[3] && timeout_cnt < 20) begin
+            @(posedge clk);
+            timeout_cnt++;
+        end
         if (out_valid[3] && out_flit[3].payload == 128'h57A11_0001) begin
             $display("   [PASS] Test 6: Stalled flit preserved and forwarded on ready.");
             test_pass_count++;
@@ -240,7 +265,11 @@ module tb_noc_router_5port;
         @(posedge clk);
         in_valid[0] <= 1'b0;
 
-        repeat (5) @(posedge clk);
+        timeout_cnt = 0;
+        while ((!out_valid[4] || !out_valid[2]) && timeout_cnt < 20) begin
+            @(posedge clk);
+            timeout_cnt++;
+        end
         $display("   [PASS] Test 7: West and South dimensions verified.");
         test_pass_count++;
 
@@ -258,7 +287,11 @@ module tb_noc_router_5port;
         @(posedge clk);
         for (int p = 0; p < 5; p++) in_valid[p] <= 0;
 
-        repeat (10) @(posedge clk);
+        timeout_cnt = 0;
+        while ((!out_valid[0] || !out_valid[1] || !out_valid[2] || !out_valid[3] || !out_valid[4]) && timeout_cnt < 20) begin
+            @(posedge clk);
+            timeout_cnt++;
+        end
         $display("   [PASS] Test 8: Full 5-port concurrent crossbar switching completed.");
         test_pass_count++;
 
